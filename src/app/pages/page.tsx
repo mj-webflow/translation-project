@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { WebflowPage, WebflowPagesResponse } from '@/types/webflow';
+import type { WebflowPage, WebflowPagesResponse, WebflowLocale } from '@/types/webflow';
 
 interface TranslationProgress {
   pageId: string;
@@ -80,35 +80,94 @@ export default function WebflowPagesPage() {
         [pageId]: { ...prev[pageId], status: 'fetching' }
       }));
 
-      const response = await fetch('/api/webflow/translate-page', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pageId })
-      });
+      // Fetch locales
+      const localesResp = await fetch('/api/webflow/locales');
+      if (!localesResp.ok) {
+        const err = await localesResp.json();
+        throw new Error(err.error || 'Failed to fetch locales');
+      }
+      const locales: { primary: WebflowLocale | null; secondary: WebflowLocale[] } = await localesResp.json();
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Translation failed');
+      // Fetch page content
+      setTranslationProgress(prev => ({
+        ...prev,
+        [pageId]: { ...prev[pageId], status: 'fetching', currentLocale: undefined }
+      }));
+
+      const contentResp = await fetch(`/api/webflow/page-content?pageId=${encodeURIComponent(pageId)}`);
+      if (!contentResp.ok) {
+        const err = await contentResp.json();
+        throw new Error(err.error || 'Failed to fetch page content');
+      }
+      const pageContent: { nodes: Array<{ nodeId: string; text?: string }> } = await contentResp.json();
+
+      const textNodes = (pageContent.nodes || []).filter(n => typeof n.text === 'string' && !!n.text && n.text.trim().length > 0);
+      if (textNodes.length === 0) {
+        throw new Error('No content found to translate on this page');
       }
 
-      const result = await response.json();
+      const completedLocales: string[] = [];
 
-      // Update progress with completed translation
+      for (const locale of locales.secondary || []) {
+        setTranslationProgress(prev => ({
+          ...prev,
+          [pageId]: { ...prev[pageId], status: 'translating', currentLocale: locale.displayName }
+        }));
+
+        // Batch translate all text nodes for this locale
+        const resp = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            texts: textNodes.map(n => n.text as string),
+            targetLanguage: locale.displayName,
+            sourceLanguage: 'English',
+            context: `Webflow page content: ${page.title} (${page.slug})`
+          })
+        });
+
+        if (!resp.ok) {
+          const errorData = await resp.json();
+          throw new Error(errorData.error || `Translation failed for ${locale.displayName}`);
+        }
+
+        const { translations }: { translations: string[] } = await resp.json();
+
+        // Map translations back to nodeIds
+        const nodesToUpdate = textNodes.map((n, idx) => ({ nodeId: n.nodeId, text: translations[idx] || (n.text as string) }));
+
+        // Update Webflow localized content
+        setTranslationProgress(prev => ({
+          ...prev,
+          [pageId]: { ...prev[pageId], status: 'updating', currentLocale: locale.displayName }
+        }));
+
+        const updateResp = await fetch('/api/webflow/update-page', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pageId, localeId: locale.id, nodes: nodesToUpdate })
+        });
+
+        if (!updateResp.ok) {
+          const errorData = await updateResp.json();
+          throw new Error(errorData.error || `Failed to update ${locale.displayName}`);
+        }
+
+        completedLocales.push(locale.displayName);
+        setTranslationProgress(prev => ({
+          ...prev,
+          [pageId]: { ...prev[pageId], status: 'translating', completedLocales: [...completedLocales] }
+        }));
+      }
+
       setTranslationProgress(prev => ({
         ...prev,
         [pageId]: {
           ...prev[pageId],
           status: 'complete',
-          completedLocales: result.completedLocales || []
+          completedLocales
         }
       }));
-
-      // Refresh pages list
-      const pagesResponse = await fetch('/api/webflow/pages');
-      if (pagesResponse.ok) {
-        const data: WebflowPagesResponse = await pagesResponse.json();
-        setPages(data.pages);
-      }
 
     } catch (err) {
       console.error('Translation error:', err);

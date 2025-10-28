@@ -102,14 +102,6 @@ Translates a page to all configured locales.
 
 ### Supported Locales
 
-The system is configured with these locales (from Webflow site):
-
-| Locale | Display Name | Tag | Locale ID | CMS Locale ID | Subdirectory |
-|--------|--------------|-----|-----------|---------------|--------------|
-| Primary | English | en | `68c83faab4d1c57c20210252` | `68c83faab4d1c57c20210247` | `/` |
-| Secondary | French (France) | fr-FR | `68c83faab4d1c57c20210254` | `68c83faab4d1c57c20210248` | `/fr-fr` |
-| Secondary | Spanish | es | `68c83faab4d1c57c20210256` | `68c83faab4d1c57c20210249` | `/es` |
-| Secondary | Arabic (Standard) | ar | `68c83faab4d1c57c20210258` | `68c83faab4d1c57c2021024a` | `/ar` |
 
 ### Environment Variables
 
