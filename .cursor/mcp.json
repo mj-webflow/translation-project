@@ -1,9 +1,11 @@
 {
   "mcpServers": {
-    "translation-mcp": {
-      "command": "node",
+    "webflow-mcp": {
+      "command": "npx",
       "args": [
-        "mcp-server.mjs"
+        "--yes",
+        "mcp-remote",
+        "https://mcp.webflow.com/sse"
       ],
       "env": {
         "WEBFLOW_API_TOKEN": "${env.WEBFLOW_API_TOKEN}",

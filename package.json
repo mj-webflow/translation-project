@@ -7,7 +7,9 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "mcp": "node ./mcp-server.mjs"
+    "mcp": "node ./mcp-server.mjs",
+    "mcp:test:list": "node scripts/mcp-list-tools.mjs",
+    "mcp:test:page": "node scripts/mcp-get-page-content.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.2",
