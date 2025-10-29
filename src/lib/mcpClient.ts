@@ -10,14 +10,15 @@ async function getClient(): Promise<Client> {
     clientPromise = (async () => {
       const client = new Client({ name: 'translation-app', version: '0.1.0' }, { capabilities: {} });
       const serverPath = path.resolve(process.cwd(), 'mcp-server.mjs');
+      const env: Record<string, string> = {};
+      if (process.env.WEBFLOW_API_TOKEN) env.WEBFLOW_API_TOKEN = process.env.WEBFLOW_API_TOKEN;
+      if (process.env.WEBFLOW_SITE_ID) env.WEBFLOW_SITE_ID = process.env.WEBFLOW_SITE_ID;
+      if (process.env.NODE_ENV) env.NODE_ENV = process.env.NODE_ENV;
+
       const transport = new StdioClientTransport({
         command: 'node',
         args: [serverPath],
-        env: {
-          WEBFLOW_API_TOKEN: process.env.WEBFLOW_API_TOKEN,
-          WEBFLOW_SITE_ID: process.env.WEBFLOW_SITE_ID,
-          NODE_ENV: process.env.NODE_ENV,
-        },
+        env,
         cwd: process.cwd(),
         stderr: 'inherit',
       });
@@ -34,10 +35,14 @@ export async function callMcpTool<T = unknown>(name: string, args?: Record<strin
   const client = await getClient();
   const result = await client.callTool({ name, arguments: args ?? {} }, CallToolResultSchema);
   if (result.isError) {
-    const msg = result.content?.[0]?.type === 'text' ? (result.content[0] as any).text : 'Unknown MCP tool error';
+    const content = (result as any).content;
+    const first = Array.isArray(content) ? content[0] : undefined;
+    const msg = first && first.type === 'text' && typeof first.text === 'string'
+      ? first.text
+      : 'Unknown MCP tool error';
     throw new Error(msg);
   }
-  return (result.structuredContent as T) ?? ({} as T);
+  return ((result as any).structuredContent as T) ?? ({} as T);
 }
 
 
