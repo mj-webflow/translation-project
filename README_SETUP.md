@@ -14,6 +14,11 @@ WEBFLOW_SITE_ID=68c83fa8b4d1c57c202101a3
 OPENAI_API_KEY=your_openai_api_key_here
 ```
 
+Notes:
+- `WEBFLOW_API_TOKEN` is used by the MCP server to authenticate with Webflow.
+- `WEBFLOW_SITE_ID` is used by the classic REST API endpoints.
+- `OPENAI_API_KEY` enables AI-powered translation; without it, the app falls back to mock translations for testing.
+
 **To get your Webflow API Token:**
 1. Go to [Webflow Developers](https://developers.webflow.com/)
 2. Navigate to your workspace settings
@@ -40,6 +45,21 @@ npm install
 ```bash
 npm run dev
 ```
+
+### 4. MCP Server Integration (Webflow)
+
+This project uses a local MCP server (`mcp-server.mjs`) to proxy Webflow Designer MCP tools. You do not need to run it manually. It is started on-demand by the app via `src/lib/mcpClient.ts` using stdio.
+
+What happens under the hood:
+- The app launches `mcp-server.mjs` (local MCP server) as a child process.
+- The local server bridges to Webflow's MCP endpoint via `npx mcp-remote https://mcp.webflow.com/sse`.
+- Tools exposed locally include:
+  - `get_page_content` → forwards to Webflow MCP `pages_get_content` with `{ page_id }`
+  - `update_page_content` → forwards to Webflow MCP `pages_update_static_content` with `{ page_id, localeId, nodes }`
+
+Requirements:
+- Internet access (the bridge connects to Webflow over SSE).
+- Valid `WEBFLOW_API_TOKEN` in your environment.
 
 ### 4. View Your Pages
 
@@ -70,12 +90,26 @@ The pages list displays all your Webflow pages with:
   - Success/error indicators
   - Automatic page content updates in Webflow
 
-### API Route
+### MCP-backed Content Management
 
-The application includes an API route at `/api/webflow/pages` that:
-- Fetches pages from the Webflow API
-- Handles authentication automatically
-- Provides error handling and logging
+- Fetch static content nodes for a Webflow page via MCP
+- Update localized static content for a page via MCP
+
+### Locales
+
+- Fetch Webflow locales for the current site to drive translation workflows
+
+### API Routes
+
+- `/api/webflow/pages` (GET): Fetch pages from Webflow REST API
+- `/api/webflow/locales` (GET): Fetch locales via Webflow API
+- `/api/webflow/page-content` (GET): Fetch static content nodes via MCP
+  - Query params: `pageId` (string)
+- `/api/webflow/update-page` (POST): Update static content via MCP
+  - Body: `{ pageId: string, localeId: string, nodes: Array<{ nodeId: string; text: string }> }`
+- `/api/webflow/translate-page` (POST): Translate a page to configured locales (AI or mock)
+  - Body: `{ pageId: string }`
+- `/api/translate` (POST): Internal translation utility (used by the workflow)
 
 ## File Structure
 
@@ -84,13 +118,27 @@ src/
 ├── app/
 │   ├── api/
 │   │   └── webflow/
-│   │       └── pages/
-│   │           └── route.ts      # API route to fetch pages
+│   │       ├── pages/
+│   │       │   └── route.ts              # Fetch pages (REST)
+│   │       ├── locales/
+│   │       │   └── route.ts              # Fetch locales
+│   │       ├── page-content/
+│   │       │   └── route.ts              # Fetch page content (MCP)
+│   │       ├── update-page/
+│   │       │   └── route.ts              # Update page content (MCP)
+│   │       └── translate-page/
+│   │           └── route.ts              # Translate and update content per locale
+│   ├── api/
+│   │   └── translate/
+│   │       └── route.ts                  # Translate utility API
 │   ├── pages/
 │   │   └── page.tsx              # Pages list UI
 │   └── page.tsx                  # Homepage
+├── lib/
+│   └── mcpClient.ts              # Launches local MCP server and calls tools
 ├── types/
 │   └── webflow.ts                # TypeScript types
+├── mcp-server.mjs                # Local MCP server (Webflow bridge)
 ```
 
 ## Next Steps
@@ -113,4 +161,20 @@ You can extend this application to:
 - Check your Webflow site ID is correct
 - Ensure your API token has read permissions for pages
 - Check the browser console and terminal for error messages
+
+### MCP server / bridge issues
+- Ensure `WEBFLOW_API_TOKEN` is set in `.env.local`
+- Confirm you have internet access (the bridge uses SSE)
+- Check terminal logs for `[mcp-server]` messages; errors there indicate MCP tool failures
+- If needed, you can test-run the MCP server manually:
+
+```bash
+node mcp-server.mjs
+```
+
+Then hit an API that uses it (in a separate terminal) to verify connectivity:
+
+```bash
+curl "http://localhost:3000/api/webflow/page-content?pageId=<YOUR_PAGE_ID>"
+```
 
