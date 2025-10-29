@@ -1,11 +1,12 @@
 {
   "mcpServers": {
-    "local-translation-mcp": {
+    "translation-mcp": {
       "command": "node",
       "args": [
-        "https://mcp.webflow.com/sse"
+        "mcp-server.mjs"
       ],
       "env": {
+        "WEBFLOW_API_TOKEN": "${env.WEBFLOW_API_TOKEN}",
         "NODE_ENV": "development"
       }
     }
