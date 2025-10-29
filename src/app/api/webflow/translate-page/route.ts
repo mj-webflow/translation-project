@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { translateText } from '@/lib/translation';
+import { callMcpTool } from '@/lib/mcpClient';
 
 const WEBFLOW_API_TOKEN = process.env.WEBFLOW_API_TOKEN;
 const WEBFLOW_SITE_ID = process.env.WEBFLOW_SITE_ID || '68c83fa8b4d1c57c202101a3';
@@ -24,57 +25,32 @@ async function fetchLocales() {
 }
 
 interface PageContent {
-	nodes: Array<{
-		nodeId: string;
-		text?: string;
-		type?: string;
-	}>;
+    nodes: Array<{
+        nodeId: string;
+        text?: string;
+        type?: string;
+    }>;
 }
 
 async function fetchPageContent(pageId: string): Promise<PageContent> {
-	const response = await fetch(
-		`https://api.webflow.com/v2/pages/${pageId}/content`,
-		{
-			headers: {
-				'Authorization': `Bearer ${WEBFLOW_API_TOKEN}`,
-				'accept-version': '1.0.0',
-			},
-		}
-	);
-
-	if (!response.ok) {
-		const errorText = await response.text();
-		throw new Error(`Failed to fetch page content: ${errorText}`);
-	}
-
-	return response.json();
+    // Use MCP to fetch static content nodes
+    // eslint-disable-next-line no-console
+    console.log('[api/webflow/translate-page] MCP get_page_content request', { pageId });
+    const data = await callMcpTool<PageContent>('get_page_content', { pageId });
+    // eslint-disable-next-line no-console
+    console.log('[api/webflow/translate-page] MCP get_page_content response', { nodesCount: Array.isArray((data as any)?.nodes) ? (data as any).nodes.length : 0 });
+    return data;
 }
 
 async function updatePageContent(
-	pageId: string,
-	localeId: string,
-	nodes: Array<{ nodeId: string; text: string }>
+    pageId: string,
+    localeId: string,
+    nodes: Array<{ nodeId: string; text: string }>
 ): Promise<void> {
-	const response = await fetch(
-		`https://api.webflow.com/v2/pages/${pageId}/static_content`,
-		{
-			method: 'PUT',
-			headers: {
-				'Authorization': `Bearer ${WEBFLOW_API_TOKEN}`,
-				'accept-version': '1.0.0',
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({
-				localeId,
-				nodes,
-			}),
-		}
-	);
-
-	if (!response.ok) {
-		const errorText = await response.text();
-		throw new Error(`Failed to update page content for locale ${localeId}: ${errorText}`);
-	}
+    // Use MCP to update localized static content
+    // eslint-disable-next-line no-console
+    console.log('[api/webflow/translate-page] MCP update_page_content request', { pageId, localeId, nodesCount: nodes.length });
+    await callMcpTool<{ success: boolean }>('update_page_content', { pageId, localeId, nodes });
 }
 
 export async function POST(request: NextRequest) {

@@ -27,6 +27,7 @@ export async function GET() {
 			primary: data.locales?.primary || null,
 			secondary: data.locales?.secondary || [],
 		};
+		console.log('Locales fetched:', locales);
 
 		return NextResponse.json(locales);
 	} catch (err) {

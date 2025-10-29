@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const WEBFLOW_API_TOKEN = process.env.WEBFLOW_API_TOKEN;
+import { callMcpTool } from '@/lib/mcpClient';
 
 export async function PUT(request: NextRequest) {
   try {
-    if (!WEBFLOW_API_TOKEN) {
-      return NextResponse.json(
-        { error: 'Webflow API token not configured' },
-        { status: 500 }
-      );
-    }
-
     const { pageId, localeId, nodes } = await request.json();
 
     if (!pageId || !localeId || !Array.isArray(nodes)) {
@@ -20,25 +12,11 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const response = await fetch(`https://api.webflow.com/v2/pages/${pageId}/static_content`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${WEBFLOW_API_TOKEN}`,
-        'accept-version': '1.0.0',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ localeId, nodes }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return NextResponse.json(
-        { error: 'Failed to update page content', details: errorText },
-        { status: response.status }
-      );
-    }
-
-    return NextResponse.json({ success: true });
+    // Log and delegate update to MCP tool
+    // eslint-disable-next-line no-console
+    console.log('[api/webflow/update-page] MCP update_page_content request', { pageId, localeId, nodesCount: Array.isArray(nodes) ? nodes.length : 0 });
+    const result = await callMcpTool<{ success: boolean }>('update_page_content', { pageId, localeId, nodes });
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },

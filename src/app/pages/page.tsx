@@ -53,7 +53,7 @@ export default function WebflowPagesPage() {
       return (
         page.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         page.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        page.publishedPath.toLowerCase().includes(searchQuery.toLowerCase())
+        (page.publishedPath?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
       );
     });
 
@@ -362,9 +362,9 @@ export default function WebflowPagesPage() {
                         </svg>
                       </a>
 
-                      {page.seo.description && (
+                      {page.seo?.description && (
                         <p className="text-sm text-zinc-500 dark:text-zinc-500 mb-3">
-                          {page.seo.description}
+                          {page.seo?.description}
                         </p>
                       )}
 

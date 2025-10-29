@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "local-translation-mcp": {
+      "command": "node",
+      "args": [
+        "https://mcp.webflow.com/sse"
+      ],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    }
+  }
+}
+
+

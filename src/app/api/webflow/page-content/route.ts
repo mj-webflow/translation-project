@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const WEBFLOW_API_TOKEN = process.env.WEBFLOW_API_TOKEN;
+import { callMcpTool } from '@/lib/mcpClient';
 
 export async function GET(request: NextRequest) {
   try {
-    if (!WEBFLOW_API_TOKEN) {
-      return NextResponse.json(
-        { error: 'Webflow API token not configured' },
-        { status: 500 }
-      );
-    }
-
     const { searchParams } = new URL(request.url);
     const pageId = searchParams.get('pageId');
 
@@ -21,23 +13,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const response = await fetch(`https://api.webflow.com/v2/pages/${pageId}/content`, {
-      headers: {
-        Authorization: `Bearer ${WEBFLOW_API_TOKEN}`,
-        'accept-version': '1.0.0',
-      },
-      cache: 'no-store',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return NextResponse.json(
-        { error: 'Failed to fetch page content', details: errorText },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
+    // Log and delegate to MCP tool
+    // eslint-disable-next-line no-console
+    console.log('[api/webflow/page-content] MCP get_page_content request', { pageId });
+    const data = await callMcpTool<{ nodes: Array<{ nodeId: string; text?: string; type?: string }> }>('get_page_content', { pageId });
+    // eslint-disable-next-line no-console
+    console.log('[api/webflow/page-content] MCP get_page_content response', { nodesCount: Array.isArray((data as any)?.nodes) ? (data as any).nodes.length : 0 });
     return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json(
