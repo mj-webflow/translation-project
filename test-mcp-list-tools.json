@@ -1,0 +1,1009 @@
+{
+{"description": "Designer Tool - Element tool to perform actions like get all elements, get selected element, select element on current active page. and more",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "description": "The ID of the site. DO NOT ASSUME site id. ALWAYS ask user for site id if not already provided or known. use sites_list tool to fetch all sites and then ask user to select one of them."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "get_all_elements": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string",
+                      "enum": [
+                        "all"
+                      ],
+                      "description": "Query to get all elements"
+                    },
+                    "include_style_properties": {
+                      "type": "boolean",
+                      "description": "Include style properties"
+                    },
+                    "include_all_breakpoint_styles": {
+                      "type": "boolean",
+                      "description": "Include all breakpoints styles"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Get all elements on the current active page"
+                },
+                "get_selected_element": {
+                  "type": "boolean",
+                  "description": "Get selected element on the current active page"
+                },
+                "select_element": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "object",
+                      "properties": {
+                        "component": {
+                          "type": "string",
+                          "description": "The component id of the element to perform action on."
+                        },
+                        "element": {
+                          "type": "string",
+                          "description": "The element id of the element to perform action on."
+                        }
+                      },
+                      "required": [
+                        "component",
+                        "element"
+                      ],
+                      "additionalProperties": false,
+                      "description": "The id of the element to perform action on, you can find it from id field on element. e.g id:{component:123,element:456}."
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Select an element on the current active page"
+                },
+                "add_or_update_attribute": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "$ref": "#/properties/actions/items/properties/select_element/properties/id"
+                    },
+                    "attributes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "The name of the attribute to add or update."
+                          },
+                          "value": {
+                            "type": "string",
+                            "description": "The value of the attribute to add or update."
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "The attributes to add or update."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "attributes"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Add or update an attribute on the element"
+                },
+                "remove_attribute": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "$ref": "#/properties/actions/items/properties/select_element/properties/id"
+                    },
+                    "attribute_names": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The names of the attributes to remove."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "attribute_names"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Remove an attribute from the element"
+                },
+                "update_id_attribute": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "$ref": "#/properties/actions/items/properties/select_element/properties/id"
+                    },
+                    "new_id": {
+                      "type": "string",
+                      "description": "The new #id of the element to update the id attribute to."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "new_id"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Update the #id attribute of the element"
+                },
+                "set_text": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "$ref": "#/properties/actions/items/properties/select_element/properties/id"
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "The text to set on the element."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "text"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Set text on the element"
+                },
+                "set_style": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "$ref": "#/properties/actions/items/properties/select_element/properties/id"
+                    },
+                    "style_names": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The style names to set on the element."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "style_names"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Set style on the element. it will remove all other styles on the element. and set only the styles passed in style_names."
+                },
+                "set_link": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "$ref": "#/properties/actions/items/properties/select_element/properties/id"
+                    },
+                    "linkType": {
+                      "type": "string",
+                      "enum": [
+                        "url",
+                        "file",
+                        "page",
+                        "element",
+                        "email",
+                        "phone"
+                      ],
+                      "description": "The type of the link to update."
+                    },
+                    "link": {
+                      "type": "string",
+                      "description": "The link to set on the element. for page pass page id, for element pass json string of id object. e.g id:{component:123,element:456}. for email pass email address. for phone pass phone number. for file pass asset id. for url pass url."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "linkType",
+                    "link"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Set link on the element"
+                },
+                "set_heading_level": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "$ref": "#/properties/actions/items/properties/select_element/properties/id"
+                    },
+                    "heading_level": {
+                      "type": "number",
+                      "minimum": 1,
+                      "maximum": 6,
+                      "description": "The heading level to set on the element. 1 to 6."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "heading_level"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Set heading level on the heading element."
+                },
+                "set_image_asset": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "$ref": "#/properties/actions/items/properties/select_element/properties/id"
+                    },
+                    "image_asset_id": {
+                      "type": "string",
+                      "description": "The image asset id to set on the element."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "image_asset_id"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Set image asset on the image element"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "siteId",
+          "actions"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "de_page_tool",
+      "description": "Designer Tool - Page tool to perform actions like create page, create page folder, get current page, switch page",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "description": "The ID of the site. DO NOT ASSUME site id. ALWAYS ask user for site id if not already provided or known. use sites_list tool to fetch all sites and then ask user to select one of them."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "create_page": {
+                  "type": "object",
+                  "properties": {
+                    "page_name": {
+                      "type": "string",
+                      "description": "The name of the page to create"
+                    },
+                    "meta_title": {
+                      "type": "string",
+                      "description": "The meta title of the page to create"
+                    },
+                    "meta_description": {
+                      "type": "string",
+                      "description": "The meta description of the page to create"
+                    },
+                    "page_parent_folder_id": {
+                      "type": "string",
+                      "description": "The id of the parent page folder to create the page in"
+                    }
+                  },
+                  "required": [
+                    "page_name",
+                    "meta_title"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create new page"
+                },
+                "create_page_folder": {
+                  "type": "object",
+                  "properties": {
+                    "page_folder_name": {
+                      "type": "string",
+                      "description": "The name of the page folder to create"
+                    },
+                    "page_folder_parent_id": {
+                      "type": "string",
+                      "description": "The id of the parent page folder to create the page folder in"
+                    }
+                  },
+                  "required": [
+                    "page_folder_name"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create new page folder"
+                },
+                "get_current_page": {
+                  "type": "boolean",
+                  "description": "Get current page active on webflow designer"
+                },
+                "switch_page": {
+                  "type": "object",
+                  "properties": {
+                    "page_id": {
+                      "type": "string",
+                      "description": "The id of the page to switch to"
+                    }
+                  },
+                  "required": [
+                    "page_id"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Switch to a page on webflow designer"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "siteId",
+          "actions"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "style_tool",
+      "description": "Designer Tool - Style tool to perform actions like create style, get all styles, update styles",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "description": "The ID of the site. DO NOT ASSUME site id. ALWAYS ask user for site id if not already provided or known. use sites_list tool to fetch all sites and then ask user to select one of them."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "create_style": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The name of the style"
+                    },
+                    "properties": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "property_name": {
+                            "type": "string",
+                            "description": "The name of the property"
+                          },
+                          "property_value": {
+                            "type": "string",
+                            "description": "The value of the property"
+                          },
+                          "variable_as_value": {
+                            "type": "string",
+                            "description": "The variable id to use as the value"
+                          }
+                        },
+                        "required": [
+                          "property_name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "The properties of the style. if you are looking to link a variable as the value, then use the variable_as_value field. but do not use both property_value and variable_as_value"
+                    },
+                    "parent_style_name": {
+                      "type": "string",
+                      "description": "The name of the parent style to create the new style in. this will use to create combo class"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "properties"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create a new style"
+                },
+                "get_styles": {
+                  "type": "object",
+                  "properties": {
+                    "skip_properties": {
+                      "type": "boolean",
+                      "description": "Whether to skip the properties of the style. to get minimal data."
+                    },
+                    "include_all_breakpoints": {
+                      "type": "boolean",
+                      "description": "Whether to include all breakpoints styles or not. very data intensive."
+                    },
+                    "query": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "filtered"
+                      ],
+                      "description": "The query to get all styles or filtered styles"
+                    },
+                    "filter_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The ids of the styles to filter by. should be used with query filtered"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Get all styles"
+                },
+                "update_style": {
+                  "type": "object",
+                  "properties": {
+                    "style_name": {
+                      "type": "string",
+                      "description": "The name of the style to update"
+                    },
+                    "breakpoint_id": {
+                      "type": "string",
+                      "enum": [
+                        "xxl",
+                        "xl",
+                        "large",
+                        "main",
+                        "medium",
+                        "small",
+                        "tiny"
+                      ],
+                      "description": "The breakpoint to update the style for"
+                    },
+                    "pseudo": {
+                      "type": "string",
+                      "enum": [
+                        "noPseudo",
+                        "nth-child(odd)",
+                        "nth-child(even)",
+                        "first-child",
+                        "last-child",
+                        "hover",
+                        "active",
+                        "pressed",
+                        "visited",
+                        "focus",
+                        "focus-visible",
+                        "focus-within",
+                        "placeholder",
+                        "empty",
+                        "before",
+                        "after"
+                      ],
+                      "description": "The pseudo class to update the style for"
+                    },
+                    "properties": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "property_name": {
+                            "type": "string",
+                            "description": "The name of the property"
+                          },
+                          "property_value": {
+                            "type": "string",
+                            "description": "The value of the property"
+                          },
+                          "variable_as_value": {
+                            "type": "string",
+                            "description": "The variable id to use as the value"
+                          }
+                        },
+                        "required": [
+                          "property_name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "The properties to update or add to the style for"
+                    },
+                    "remove_properties": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The properties to remove from the style"
+                    }
+                  },
+                  "required": [
+                    "style_name"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Update a style"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "siteId",
+          "actions"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "de_learn_more_about_styles",
+      "description": "Designer tool - Learn more about styles supported by Webflow Designer.Please do not use any other styles which is not supported by Webflow Designer.Please use the long-form alias of a CSS property when managing styles. For example, the property row-gap has a long-form alias of grid-row-gap, margin has long-form alias of margin-top, margin-right, margin-bottom, margin-left, etc.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "variable_tool",
+      "description": "Designer Tool - Variable tool to perform actions like create variable, get all variables, update variable",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "description": "The ID of the site. DO NOT ASSUME site id. ALWAYS ask user for site id if not already provided or known. use sites_list tool to fetch all sites and then ask user to select one of them."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "create_variable_collection": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The name of the variable collection to create"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create a new variable collection"
+                },
+                "create_variable_mode": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string",
+                      "description": "The id of the variable collection to create the variable mode in"
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "The name of the variable mode to create"
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "name"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create a new variable mode in a variable collection"
+                },
+                "get_variable_collections": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "filtered"
+                      ],
+                      "description": "The query to get all variable collections"
+                    },
+                    "filter_collections_by_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The ids of the variable collections to filter by"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Get all variable collections and its modes"
+                },
+                "get_variables": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string",
+                      "description": "The id of the variable collection to get the variables from"
+                    },
+                    "include_all_modes": {
+                      "type": "boolean",
+                      "description": "Whether to include all modes or not"
+                    },
+                    "filter_variables_by_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The ids of the variables to filter by"
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Get all variables in a variable collection and its modes"
+                },
+                "create_color_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "string"
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_name",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create a new color variable"
+                },
+                "create_size_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "number"
+                            },
+                            "unit": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "unit"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_name",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create a new size variable"
+                },
+                "create_number_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "number"
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_name",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create a new number variable"
+                },
+                "create_percentage_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "number"
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_name",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create a new percentage variable"
+                },
+                "create_font_family_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "string"
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_name",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Create a new font family variable"
+                },
+                "update_color_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_id": {
+                      "type": "string"
+                    },
+                    "mode_id": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "string"
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_id",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Update a color variable"
+                },
+                "update_size_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_id": {
+                      "type": "string"
+                    },
+                    "mode_id": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "number"
+                            },
+                            "unit": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "unit"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_id",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Update a size variable"
+                },
+                "update_number_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_id": {
+                      "type": "string"
+                    },
+                    "mode_id": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "number"
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_id",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Update a number variable"
+                },
+                "update_percentage_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_id": {
+                      "type": "string"
+                    },
+                    "mode_id": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "number"
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_id",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Update a percentage variable"
+                },
+                "update_font_family_variable": {
+                  "type": "object",
+                  "properties": {
+                    "variable_collection_id": {
+                      "type": "string"
+                    },
+                    "variable_id": {
+                      "type": "string"
+                    },
+                    "mode_id": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "static_value": {
+                          "type": "string"
+                        },
+                        "existing_variable_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "variable_collection_id",
+                    "variable_id",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Update a font family variable"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "siteId",
+          "actions"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ]
+}

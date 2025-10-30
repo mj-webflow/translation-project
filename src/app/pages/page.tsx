@@ -18,6 +18,7 @@ export default function WebflowPagesPage() {
   const [filter, setFilter] = useState<'all' | 'published' | 'draft'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [translationProgress, setTranslationProgress] = useState<Record<string, TranslationProgress>>({});
+  const [inserting, setInserting] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const fetchPages = async () => {
@@ -179,6 +180,34 @@ export default function WebflowPagesPage() {
           error: err instanceof Error ? err.message : 'Translation failed'
         }
       }));
+    }
+  };
+
+  const handleInsertText = async (page: WebflowPage) => {
+    const pageId = page.id;
+    try {
+      setInserting(prev => ({ ...prev, [pageId]: true }));
+      const resp = await fetch('/api/webflow/insert-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageId, text: 'Inserted' }),
+      });
+      if (!resp.ok) {
+        let msg = 'Failed to insert text';
+        try {
+          const err = await resp.json();
+          msg = err.details ? `${err.error || msg}: ${err.details}` : (err.error || msg);
+        } catch {}
+        throw new Error(msg);
+      }
+      // Optional: toast/alert
+      // eslint-disable-next-line no-alert
+      alert('Inserted text on page via Designer.');
+    } catch (e) {
+      // eslint-disable-next-line no-alert
+      alert((e as Error).message);
+    } finally {
+      setInserting(prev => ({ ...prev, [pageId]: false }));
     }
   };
 
@@ -431,6 +460,20 @@ export default function WebflowPagesPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
                         </svg>
                         {isTranslating ? 'Translating...' : 'Translate'}
+                      </button>
+                      <button
+                        onClick={() => handleInsertText(page)}
+                        disabled={!!inserting[page.id]}
+                        className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
+                          inserting[page.id]
+                            ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        {inserting[page.id] ? 'Inserting…' : "Insert 'Inserted'"}
                       </button>
                     </div>
                   </div>
