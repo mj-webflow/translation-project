@@ -2,7 +2,7 @@
 
 ## Overview
 
-This Next.js application provides an automated translation workflow for Webflow pages, allowing you to translate page content from English to multiple languages (French, Spanish, and Arabic) with a single click.
+This Next.js application provides a localization workflow for Webflow pages, allowing you to copy page content from the primary locale to multiple secondary locales (e.g., French, Spanish, Arabic) with a single click using the Webflow Localization APIs.
 
 ## How It Works
 
@@ -16,22 +16,17 @@ This Next.js application provides an automated translation workflow for Webflow 
 
 When you click the "Translate" button:
 
-#### Step 1: Fetch Page Content
-- Retrieves the current page content from Webflow
-- Extracts all text nodes that need translation
+#### Step 1: Fetch Page Content (Primary Locale)
+- Retrieves the current page static content from Webflow (primary locale)
+- Extracts all text nodes that need localization
 - Uses Webflow API: `GET /v2/pages/{pageId}/content`
 
-#### Step 2: AI Translation
-- Sends each text node to OpenAI (GPT)
-- Translates from English to target languages:
-  - French (France)
-  - Spanish
-  - Arabic (Standard)
-- Preserves HTML formatting, tags, and structure
-- Maintains tone and style
+#### Step 2: Prepare Localized Content
+- Uses the primary locale text as the source for all secondary locales
+- You may enhance this step later to integrate your own translation source or workflow
 
 #### Step 3: Update Localized Content
-- Updates each secondary locale with translated content
+- Updates each secondary locale with the prepared content
 - Uses Webflow API: `PUT /v2/pages/{pageId}/static_content`
 - Updates all locales sequentially
 
@@ -54,7 +49,7 @@ src/
 │           ├── pages/
 │           │   └── route.ts            # Fetch all pages
 │           └── translate-page/
-│               └── route.ts            # Translation workflow handler
+│               └── route.ts            # Localization workflow handler
 ├── lib/
 │   └── translation.ts                  # AI translation service
 └── types/
@@ -119,33 +114,21 @@ Required environment variables in `.env.local`:
 # Webflow API (Required)
 WEBFLOW_API_TOKEN=your_webflow_api_token
 WEBFLOW_SITE_ID=68c83fa8b4d1c57c202101a3
-
-# OpenAI API (Required for translation)
-OPENAI_API_KEY=your_openai_api_key
 ```
 
-## Translation Quality
+## Content Preparation
 
-### AI Model
-- **Provider**: OpenAI (GPT)
-- **Model**: `gpt-4o-mini`
-- **Temperature**: 0.2 (deterministic)
+The system currently copies primary locale content as-is to each secondary locale.
 
-### Translation Rules
-The AI is instructed to:
-1. Provide only translated text (no explanations)
-2. Preserve all HTML tags exactly
-3. Maintain formatting, line breaks, and spacing
-4. Keep the same tone and style
-5. Keep proper nouns and brand names as-is
-6. Handle right-to-left languages (Arabic) properly
-7. Preserve placeholder variables unchanged
+Guidelines for preparing content:
+1. Preserve HTML tags and structure
+2. Maintain formatting, line breaks, and spacing
+3. Keep proper nouns and brand names as-is
+4. Handle right-to-left languages (Arabic) properly
+5. Preserve placeholder variables unchanged
 
-### Fallback Behavior
-If the OpenAI API key is not configured or translation fails:
-- Falls back to mock translation (adds language prefix)
-- Logs warnings to console
-- Allows testing without API costs
+### Notes
+- There is no external AI dependency. All updates occur via Webflow Localization APIs.
 
 ## Usage Examples
 
@@ -197,9 +180,9 @@ Potential improvements:
 ## Performance Considerations
 
 - **API Calls**: Each page requires 1 fetch + N update calls (N = number of locales)
-- **Translation Speed**: ~1-3 seconds per text node
-- **Rate Limits**: Respects Webflow and OpenAI API rate limits
-- **Cost**: OpenAI API usage based on token count
+- **Update Speed**: Depends on number of nodes and locales
+- **Rate Limits**: Respects Webflow Data API rate limits
+- **Cost**: No external AI costs
 
 ## Support
 
@@ -211,9 +194,8 @@ For issues or questions:
 
 ## License
 
-This translation workflow is part of the translation-project and uses:
+This localization workflow is part of the translation-project and uses:
 - Webflow API v2
-- OpenAI API
 - Next.js 16
 - React 19
 

@@ -11,7 +11,6 @@ Create a `.env.local` file in the root of your project with the following conten
 ```env
 WEBFLOW_API_TOKEN=your_webflow_api_token_here
 WEBFLOW_SITE_ID=68c83fa8b4d1c57c202101a3
-OPENAI_API_KEY=your_openai_api_key_here
 ```
 
 **To get your Webflow API Token:**
@@ -19,15 +18,6 @@ OPENAI_API_KEY=your_openai_api_key_here
 2. Navigate to your workspace settings
 3. Generate a new API token with appropriate permissions
 4. Copy the token and paste it in your `.env.local` file
-
-**To get your OpenAI API Key:**
-1. Go to [OpenAI Platform](https://platform.openai.com/)
-2. Sign up or log in to your account
-3. Navigate to API Keys
-4. Create a new secret key
-5. Copy the key and paste it in your `.env.local` file
-
-**Note:** If the OpenAI API key is not provided, the system will fall back to mock translations for testing.
 
 ### 2. Install Dependencies
 
@@ -62,20 +52,19 @@ The pages list displays all your Webflow pages with:
   - Status badges (Draft, Published, Branch, Template)
   - Page ID and slug
   - Last updated date
-- **Translation Workflow**:
-  - One-click translation button for each page
-  - Automatic translation to all configured locales (French, Spanish, Arabic)
+- **Localization Workflow**:
+  - One-click update button for each page
+  - Copies primary locale page content to each configured secondary locale using Webflow Localization APIs
   - Real-time progress tracking
-  - AI-powered translations using OpenAI (GPT)
   - Success/error indicators
-  - Automatic page content updates in Webflow
 
 ### API Route
 
-The application includes an API route at `/api/webflow/pages` that:
-- Fetches pages from the Webflow API
-- Handles authentication automatically
-- Provides error handling and logging
+The application includes API routes under `/api/webflow` that:
+- Fetch pages from the Webflow API
+- Fetch site locales (primary and secondary) from the Webflow API
+- Update localized static page content via Webflow Localization APIs
+- Handle authentication and error handling
 
 ## File Structure
 
@@ -84,8 +73,10 @@ src/
 ├── app/
 │   ├── api/
 │   │   └── webflow/
-│   │       └── pages/
-│   │           └── route.ts      # API route to fetch pages
+│   │       ├── pages/
+│   │       │   └── route.ts      # API route to fetch pages
+│   │       └── translate-page/
+│   │           └── route.ts      # Localization workflow handler
 │   ├── pages/
 │   │   └── page.tsx              # Pages list UI
 │   └── page.tsx                  # Homepage
@@ -97,10 +88,9 @@ src/
 
 You can extend this application to:
 - Add page editing capabilities
-- Implement translation workflows
 - Manage multiple locales
 - Bulk update page content
-- Track translation progress
+- Track localization progress
 
 ## Troubleshooting
 
