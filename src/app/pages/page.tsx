@@ -23,7 +23,11 @@ export default function WebflowPagesPage() {
     const fetchPages = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/webflow/pages');
+        const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
+        const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
+        const response = await fetch(`/api/webflow/pages${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}` , {
+          headers: storedToken ? { 'x-webflow-token': storedToken } : {},
+        });
         
         if (!response.ok) {
           const errorData = await response.json();
@@ -104,7 +108,11 @@ export default function WebflowPagesPage() {
       }));
 
       // Refresh pages list
-      const pagesResponse = await fetch('/api/webflow/pages');
+      const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
+      const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
+      const pagesResponse = await fetch(`/api/webflow/pages${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}`, {
+        headers: storedToken ? { 'x-webflow-token': storedToken } : {},
+      });
       if (pagesResponse.ok) {
         const data: WebflowPagesResponse = await pagesResponse.json();
         setPages(data.pages);
