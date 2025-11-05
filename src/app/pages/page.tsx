@@ -23,10 +23,10 @@ export default function WebflowPagesPage() {
     const fetchPages = async () => {
       try {
         setLoading(true);
-        const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
-        const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
-        const response = await fetch(`/api/webflow/pages${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}` , {
-          headers: storedToken ? { 'x-webflow-token': storedToken } : {},
+        const storedSiteIdFetch = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
+        const storedTokenFetch = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
+        const response = await fetch(`/api/webflow/pages${storedSiteIdFetch ? `?siteId=${encodeURIComponent(storedSiteIdFetch)}` : ''}` , {
+          headers: storedTokenFetch ? { 'x-webflow-token': storedTokenFetch } : {},
         });
         
         if (!response.ok) {
@@ -84,9 +84,13 @@ export default function WebflowPagesPage() {
         [pageId]: { ...prev[pageId], status: 'fetching' }
       }));
 
-      const response = await fetch('/api/webflow/translate-page', {
+      const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
+      const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
+      const branchId = page.branchId ? `&branchId=${encodeURIComponent(page.branchId)}` : '';
+      const response = await fetch(`/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        ...(storedToken ? { headers: { 'Content-Type': 'application/json', 'x-webflow-token': storedToken } } : {}),
         body: JSON.stringify({ pageId })
       });
 
@@ -108,10 +112,10 @@ export default function WebflowPagesPage() {
       }));
 
       // Refresh pages list
-      const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
-      const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
-      const pagesResponse = await fetch(`/api/webflow/pages${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}`, {
-        headers: storedToken ? { 'x-webflow-token': storedToken } : {},
+      const storedSiteIdRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
+      const storedTokenRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
+      const pagesResponse = await fetch(`/api/webflow/pages${storedSiteIdRefresh ? `?siteId=${encodeURIComponent(storedSiteIdRefresh)}` : ''}`, {
+        headers: storedTokenRefresh ? { 'x-webflow-token': storedTokenRefresh } : {},
       });
       if (pagesResponse.ok) {
         const data: WebflowPagesResponse = await pagesResponse.json();

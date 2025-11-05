@@ -3,16 +3,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { translateBatch } from '@/lib/translation';
 
 const WEBFLOW_API_TOKEN = process.env.WEBFLOW_API_TOKEN;
-const WEBFLOW_SITE_ID = process.env.WEBFLOW_SITE_ID || '68c83fa8b4d1c57c202101a3';
+const WEBFLOW_SITE_ID = process.env.WEBFLOW_SITE_ID || '';
 
-async function fetchLocales() {
-	const resp = await fetch(`https://api.webflow.com/v2/sites/${WEBFLOW_SITE_ID}`, {
-		headers: {
-			Authorization: `Bearer ${WEBFLOW_API_TOKEN}`,
-			'accept-version': '1.0.0',
-		},
-		cache: 'no-store',
-	});
+async function fetchLocales(siteId: string, token: string) {
+    const resp = await fetch(`https://api.webflow.com/v2/sites/${siteId}`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'accept-version': '1.0.0',
+        },
+        cache: 'no-store',
+    });
 	if (!resp.ok) {
 		const errorText = await resp.text();
 		throw new Error(`Failed to fetch locales: ${errorText}`);
@@ -35,16 +35,15 @@ interface PageContent {
 	}>;
 }
 
-async function fetchPageContent(pageId: string): Promise<PageContent> {
-    const response = await fetch(
-        `https://api.webflow.com/v2/pages/${pageId}/dom`,
-        {
-            headers: {
-                'Authorization': `Bearer ${WEBFLOW_API_TOKEN}`,
-                'accept-version': '1.0.0',
-            },
-        }
-    );
+async function fetchPageContent(pageId: string, token: string, branchId?: string | null): Promise<PageContent> {
+    const url = new URL(`https://api.webflow.com/v2/pages/${pageId}/dom`);
+    if (branchId) url.searchParams.set('branchId', branchId);
+    const response = await fetch(url.toString(), {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'accept-version': '1.0.0',
+        },
+    });
 
     if (!response.ok) {
         const errorText = await response.text();
@@ -101,16 +100,15 @@ type ComponentContent = {
     nodes: Array<{ nodeId: string; type?: string; text?: string; html?: string }>
 };
 
-async function fetchComponentContent(componentId: string): Promise<ComponentContent> {
-    const response = await fetch(
-        `https://api.webflow.com/v2/sites/${WEBFLOW_SITE_ID}/components/${componentId}/dom`,
-        {
-            headers: {
-                'Authorization': `Bearer ${WEBFLOW_API_TOKEN}`,
-                'accept-version': '1.0.0',
-            },
-        }
-    );
+async function fetchComponentContent(siteId: string, componentId: string, token: string, branchId?: string | null): Promise<ComponentContent> {
+    const url = new URL(`https://api.webflow.com/v2/sites/${siteId}/components/${componentId}/dom`);
+    if (branchId) url.searchParams.set('branchId', branchId);
+    const response = await fetch(url.toString(), {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'accept-version': '1.0.0',
+        },
+    });
     if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Failed to fetch component DOM content: ${errorText}`);
@@ -140,17 +138,21 @@ async function fetchComponentContent(componentId: string): Promise<ComponentCont
 }
 
 async function updateComponentContent(
+    siteId: string,
     componentId: string,
     localeId: string,
-    nodes: Array<{ nodeId: string; text: string }>
+    nodes: Array<{ nodeId: string; text: string }>,
+    token: string,
+    branchId?: string | null
 ): Promise<void> {
-    const url = new URL(`https://api.webflow.com/v2/sites/${WEBFLOW_SITE_ID}/components/${componentId}/dom`);
+    const url = new URL(`https://api.webflow.com/v2/sites/${siteId}/components/${componentId}/dom`);
     url.searchParams.set('localeId', localeId);
+    if (branchId) url.searchParams.set('branchId', branchId);
 
     const response = await fetch(url.toString(), {
         method: 'POST',
         headers: {
-            'Authorization': `Bearer ${WEBFLOW_API_TOKEN}`,
+            'Authorization': `Bearer ${token}`,
             'accept-version': '1.0.0',
             'Content-Type': 'application/json',
         },
@@ -191,7 +193,7 @@ async function updateComponentContent(
             const retryResp = await fetch(url.toString(), {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${WEBFLOW_API_TOKEN}`,
+                    'Authorization': `Bearer ${token}`,
                     'accept-version': '1.0.0',
                     'Content-Type': 'application/json',
                 },
@@ -219,17 +221,20 @@ type UpdateNode =
 async function updatePageContent(
     pageId: string,
     localeId: string,
-    nodes: UpdateNode[]
+    nodes: UpdateNode[],
+    token: string,
+    branchId?: string | null
 ): Promise<void> {
     const url = new URL(`https://api.webflow.com/v2/pages/${pageId}/dom`);
     url.searchParams.set('localeId', localeId);
+    if (branchId) url.searchParams.set('branchId', branchId);
 
     const payload = { nodes } as any;
 
     const response = await fetch(url.toString(), {
         method: 'POST',
         headers: {
-            'Authorization': `Bearer ${WEBFLOW_API_TOKEN}`,
+            'Authorization': `Bearer ${token}`,
             'accept-version': '1.0.0',
             'Content-Type': 'application/json',
         },
@@ -278,7 +283,7 @@ async function updatePageContent(
             const retryResp = await fetch(url.toString(), {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${WEBFLOW_API_TOKEN}`,
+                    'Authorization': `Bearer ${token}`,
                     'accept-version': '1.0.0',
                     'Content-Type': 'application/json',
                 },
@@ -301,14 +306,13 @@ async function updatePageContent(
 
 export async function POST(request: NextRequest) {
 	try {
-		if (!WEBFLOW_API_TOKEN) {
-			return NextResponse.json(
-				{ error: 'Webflow API token not configured' },
-				{ status: 500 }
-			);
-		}
+        const overrideToken = request.headers.get('x-webflow-token') || '';
+        const { searchParams } = new URL(request.url);
+        const siteId = searchParams.get('siteId') || WEBFLOW_SITE_ID;
+        const branchId = searchParams.get('branchId');
+        const token = overrideToken || WEBFLOW_API_TOKEN || '';
 
-		const { pageId } = await request.json();
+        const { pageId } = await request.json();
 
 		if (!pageId) {
 			return NextResponse.json(
@@ -317,14 +321,28 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
+        if (!token) {
+            return NextResponse.json(
+                { error: 'Webflow API token not configured. Provide x-webflow-token header or set WEBFLOW_API_TOKEN.' },
+                { status: 500 }
+            );
+        }
+
+        if (!siteId) {
+            return NextResponse.json(
+                { error: 'Missing siteId. Provide ?siteId=... or set WEBFLOW_SITE_ID.' },
+                { status: 400 }
+            );
+        }
+
 		console.log(`Starting translation for page: ${pageId}`);
 
 		// Step 0: Fetch locales dynamically
-		const locales = await fetchLocales();
+        const locales = await fetchLocales(siteId, token);
 		console.log('Locales used for translation:', locales);
 
 		// Step 1: Fetch page content (primary locale)
-		const pageContent = await fetchPageContent(pageId);
+        const pageContent = await fetchPageContent(pageId, token, branchId);
 		console.log("pageContent", pageContent);
 
 		if (!pageContent.nodes || pageContent.nodes.length === 0) {
@@ -423,7 +441,7 @@ export async function POST(request: NextRequest) {
             // Send page-level updates first (text nodes and property overrides)
             if (allUpdates.length > 0) {
                 console.log(`Updating ${allUpdates.length} nodes for ${locale.displayName}...`);
-                await updatePageContent(pageId, locale.id, allUpdates);
+                await updatePageContent(pageId, locale.id, allUpdates, token, branchId);
             }
 
             // Additionally, for component instances with no property overrides, update component definition content for this locale
@@ -434,7 +452,7 @@ export async function POST(request: NextRequest) {
             ));
 
             for (const componentId of uniqueComponentIds) {
-                const comp = await fetchComponentContent(componentId);
+                const comp = await fetchComponentContent(siteId, componentId, token, branchId);
                 const compTextNodes = comp.nodes.filter(n => n.type === 'text' && (
                     (typeof n.html === 'string' && n.html.trim().length > 0) ||
                     (typeof n.text === 'string' && n.text.trim().length > 0)
@@ -471,7 +489,7 @@ export async function POST(request: NextRequest) {
                     text: ensureWrapped(compTranslations[idx] ?? compSources[idx] ?? '', getRootTag(n.html)),
                 }));
 
-                await updateComponentContent(componentId, locale.id, compUpdateNodes);
+                await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
             }
 
             completedLocales.push(locale.displayName);
