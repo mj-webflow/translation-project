@@ -17,7 +17,7 @@ export async function translateText(
   text: string,
   options: TranslationOptions
 ): Promise<string> {
-  const { targetLanguage, sourceLanguage = 'English', context } = options;
+  const { targetLanguage } = options;
 
   // Skip translation if text is empty or only whitespace
   if (!text || text.trim().length === 0) {
@@ -29,56 +29,22 @@ export async function translateText(
     return text;
   }
 
-  try {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-
-    if (!openaiApiKey) {
-      console.warn('OPENAI_API_KEY not configured, using mock translation');
-      return mockTranslate(text, targetLanguage);
-    }
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0.2,
-        messages: [
-          {
-            role: 'system',
-            content: buildSystemPrompt(),
-          },
-          {
-            role: 'user',
-            content: buildTranslationPrompt(text, sourceLanguage, targetLanguage, context),
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('OpenAI API error:', error);
-      throw new Error(`Translation API failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const translatedText: string | undefined = data?.choices?.[0]?.message?.content;
-
-    if (!translatedText || typeof translatedText !== 'string') {
-      console.error('Unexpected OpenAI response format:', data);
-      throw new Error('Unexpected translation response');
-    }
-
-    return translatedText.trim();
-  } catch (error) {
-    console.error('Translation error:', error);
-    // Fallback to mock translation on error
-    return mockTranslate(text, targetLanguage);
+  // If the input likely contains HTML, translate only the text nodes and preserve tags
+  if (isLikelyHtml(text)) {
+    const tokens = splitHtmlIntoTokens(text);
+    const translatedTokens = await Promise.all(
+      tokens.map(async (token) => {
+        if (isHtmlTagToken(token) || token.trim().length === 0) {
+          return token; // preserve tags and pure whitespace as-is
+        }
+        return translatePlainText(token, options);
+      })
+    );
+    return translatedTokens.join('');
   }
+
+  // Plain text path
+  return translatePlainText(text, options);
 }
 
 /**
@@ -161,5 +127,80 @@ export const LANGUAGE_MAP: Record<string, { name: string; code: string }> = {
 export function getLanguageName(localeCode: string): string {
   const lang = LANGUAGE_MAP[localeCode];
   return lang ? lang.name : localeCode;
+}
+
+// --- Internal helpers ---
+
+function isLikelyHtml(input: string): boolean {
+  // Quick heuristic: contains any angle-bracketed tag
+  return /<[^>]+>/.test(input);
+}
+
+function splitHtmlIntoTokens(html: string): string[] {
+  // Split into tags and text segments while keeping delimiters
+  return html.split(/(<[^>]+>)/g);
+}
+
+function isHtmlTagToken(token: string): boolean {
+  const t = token.trim();
+  return t.startsWith('<') && t.endsWith('>');
+}
+
+async function translatePlainText(
+  text: string,
+  options: TranslationOptions
+): Promise<string> {
+  const { targetLanguage, sourceLanguage = 'English', context } = options;
+
+  try {
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+
+    if (!openaiApiKey) {
+      console.warn('OPENAI_API_KEY not configured, using mock translation');
+      return mockTranslate(text, targetLanguage);
+    }
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${openaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        messages: [
+          {
+            role: 'system',
+            content: buildSystemPrompt(),
+          },
+          {
+            role: 'user',
+            content: buildTranslationPrompt(text, sourceLanguage, targetLanguage, context),
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('OpenAI API error:', error);
+      throw new Error(`Translation API failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const translatedText: string | undefined = data?.choices?.[0]?.message?.content;
+
+    if (!translatedText || typeof translatedText !== 'string') {
+      console.error('Unexpected OpenAI response format:', data);
+      throw new Error('Unexpected translation response');
+    }
+    console.log('translatedText', translatedText);
+    return translatedText.trim();
+  } catch (error) {
+    console.error('Translation error:', error);
+    // Fallback to mock translation on error
+    return mockTranslate(text, targetLanguage);
+  }
 }
 
