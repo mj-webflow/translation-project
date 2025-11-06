@@ -68,11 +68,12 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
         let textValue: string | undefined;
         let htmlValue: string | undefined;
         if (n?.type === 'text') {
-            if (typeof n?.text?.text === 'string' && n.text.text.length > 0) {
-                textValue = n.text.text;
-            } else if (typeof n?.text?.html === 'string' && n.text.html.length > 0) {
+            // Prefer HTML when present to preserve nested tags/spans
+            if (typeof n?.text?.html === 'string' && n.text.html.length > 0) {
                 htmlValue = n.text.html;
                 textValue = stripHtml(n.text.html);
+            } else if (typeof n?.text?.text === 'string' && n.text.text.length > 0) {
+                textValue = n.text.text;
             }
         }
         let propertyOverrides: Array<{ propertyId: string; text?: string; html?: string }> | undefined;
@@ -120,10 +121,11 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
         let textValue: string | undefined;
         let htmlValue: string | undefined;
         if (n?.type === 'text') {
-            if (typeof n?.text?.text === 'string' && n.text.text.length > 0) {
-                textValue = n.text.text;
-            } else if (typeof n?.text?.html === 'string' && n.text.html.length > 0) {
+            // Prefer HTML when present to preserve nested tags/spans
+            if (typeof n?.text?.html === 'string' && n.text.html.length > 0) {
                 htmlValue = n.text.html;
+            } else if (typeof n?.text?.text === 'string' && n.text.text.length > 0) {
+                textValue = n.text.text;
             }
         }
         return {
