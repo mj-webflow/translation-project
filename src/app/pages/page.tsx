@@ -18,23 +18,40 @@ export default function WebflowPagesPage() {
   const [filter, setFilter] = useState<'all' | 'published' | 'draft'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [translationProgress, setTranslationProgress] = useState<Record<string, TranslationProgress>>({});
+  const [locales, setLocales] = useState<{ primary: any | null; secondary: any[] }>({ primary: null, secondary: [] });
+  const [selectedLocaleIds, setSelectedLocaleIds] = useState<string[]>([]);
 
   useEffect(() => {
-    const fetchPages = async () => {
+    const fetchLocalesThenPages = async () => {
       try {
         setLoading(true);
-        const storedSiteIdFetch = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
-        const storedTokenFetch = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
-        const response = await fetch(`/api/webflow/pages${storedSiteIdFetch ? `?siteId=${encodeURIComponent(storedSiteIdFetch)}` : ''}` , {
-          headers: storedTokenFetch ? { 'x-webflow-token': storedTokenFetch } : {},
+        const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
+        const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
+
+        // 1) Fetch locales first
+        const localesResp = await fetch(`/api/webflow/locales${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}`, {
+          headers: storedToken ? { 'x-webflow-token': storedToken } : {},
+          cache: 'no-store',
         });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
+        if (!localesResp.ok) {
+          const e = await localesResp.json().catch(() => ({}));
+          throw new Error(e?.error || 'Failed to fetch locales');
+        }
+        const localesData = await localesResp.json();
+        setLocales(localesData);
+
+        // Default selection: none. User must select at least one secondary locale before translating
+
+        // 2) Then fetch pages
+        const pagesResp = await fetch(`/api/webflow/pages${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}` , {
+          headers: storedToken ? { 'x-webflow-token': storedToken } : {},
+          cache: 'no-store',
+        });
+        if (!pagesResp.ok) {
+          const errorData = await pagesResp.json().catch(() => ({}));
           throw new Error(errorData.error || 'Failed to fetch pages');
         }
-
-        const data: WebflowPagesResponse = await response.json();
+        const data: WebflowPagesResponse = await pagesResp.json();
         setPages(data.pages);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -43,7 +60,7 @@ export default function WebflowPagesPage() {
       }
     };
 
-    fetchPages();
+    fetchLocalesThenPages();
   }, []);
 
   const filteredPages = pages
@@ -66,6 +83,18 @@ export default function WebflowPagesPage() {
 
   const handleTranslatePage = async (page: WebflowPage) => {
     const pageId = page.id;
+    if (selectedLocaleIds.length === 0) {
+      setTranslationProgress(prev => ({
+        ...prev,
+        [pageId]: {
+          pageId,
+          status: 'error',
+          error: 'Select at least one secondary locale before translating.',
+          completedLocales: [],
+        }
+      }));
+      return;
+    }
     
     // Initialize progress tracking
     setTranslationProgress(prev => ({
@@ -91,7 +120,7 @@ export default function WebflowPagesPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         ...(storedToken ? { headers: { 'Content-Type': 'application/json', 'x-webflow-token': storedToken } } : {}),
-        body: JSON.stringify({ pageId })
+        body: JSON.stringify({ pageId, targetLocaleIds: selectedLocaleIds })
       });
 
       if (!response.ok) {
@@ -177,6 +206,38 @@ export default function WebflowPagesPage() {
           <p className="text-zinc-600 dark:text-zinc-400">
             Browse and manage all pages from your Webflow site
           </p>
+        </div>
+
+        {/* Locale Selection */}
+        <div className="bg-white dark:bg-zinc-800 rounded-lg shadow-sm p-4 mb-6">
+          <div className="mb-2 text-sm text-zinc-600 dark:text-zinc-400">Select locales to translate into:</div>
+          <div className="flex flex-wrap gap-3">
+            {locales.secondary.length === 0 ? (
+              <div className="text-sm text-zinc-500 dark:text-zinc-400">No secondary locales found.</div>
+            ) : (
+              locales.secondary.map((loc: any) => {
+                const id = loc.id || loc.localeId || loc.tag;
+                const label = loc.displayName || loc.tag || id;
+                const checked = selectedLocaleIds.includes(id);
+                return (
+                  <label key={id} className="inline-flex items-center gap-2 text-sm text-zinc-800 dark:text-zinc-100">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={checked}
+                      onChange={(e) => {
+                        setSelectedLocaleIds(prev => e.target.checked ? [...prev, id] : prev.filter(x => x !== id));
+                      }}
+                    />
+                    <span>{label}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+          {selectedLocaleIds.length === 0 && (
+            <div className="mt-2 text-xs text-orange-600 dark:text-orange-400">Pick at least one secondary locale to enable translation.</div>
+          )}
         </div>
 
         {/* Stats */}

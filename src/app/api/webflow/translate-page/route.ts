@@ -307,14 +307,14 @@ async function updatePageContent(
 }
 
 export async function POST(request: NextRequest) {
-	try {
+    try {
         const overrideToken = request.headers.get('x-webflow-token') || '';
         const { searchParams } = new URL(request.url);
         const siteId = searchParams.get('siteId') || WEBFLOW_SITE_ID;
         const branchId = searchParams.get('branchId');
         const token = overrideToken || WEBFLOW_API_TOKEN || '';
 
-        const { pageId } = await request.json();
+        const { pageId, targetLocaleIds } = await request.json();
 
 		if (!pageId) {
 			return NextResponse.json(
@@ -365,8 +365,20 @@ export async function POST(request: NextRequest) {
 
 		const completedLocales: string[] = [];
 
-        // Step 2 & 3: Translate and update for each secondary locale, including component instances
-		for (const locale of locales.secondary) {
+        // Determine target locales: either selected ones or all secondary if explicitly allowed
+        const targetLocales = Array.isArray(targetLocaleIds) && targetLocaleIds.length > 0
+            ? (locales.secondary || []).filter((l: any) => targetLocaleIds.includes(l.id))
+            : [];
+
+        if (!targetLocales || targetLocales.length === 0) {
+            return NextResponse.json(
+                { error: 'No target locales selected. Provide targetLocaleIds (secondary locales).' },
+                { status: 400 }
+            );
+        }
+
+        // Step 2 & 3: Translate and update for each selected secondary locale (in parallel)
+        await Promise.all(targetLocales.map(async (locale: any) => {
                 console.log(`Updating locale ${locale.displayName} (${locale.tag}) with translated text...`);
 
                 const sources = textNodes.map((node) => (
@@ -495,7 +507,7 @@ export async function POST(request: NextRequest) {
             }
 
             completedLocales.push(locale.displayName);
-		}
+        }))
 
 		console.log(`Translation complete for page ${pageId}. Updated ${completedLocales.length} locales.`);
 
