@@ -139,6 +139,78 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
     return { nodes: result };
 }
 
+/**
+ * Fetch component properties for a component definition
+ * Used to translate properties for locales (default values) via Data API
+ */
+async function fetchComponentProperties(
+    siteId: string,
+    componentId: string,
+    token: string,
+    branchId?: string | null
+): Promise<Array<{ propertyId: string; text?: string }>> {
+    const url = new URL(`https://api.webflow.com/v2/sites/${siteId}/components/${componentId}/properties`);
+    if (branchId) url.searchParams.set('branchId', branchId);
+    const response = await fetch(url.toString(), {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'accept-version': '1.0.0',
+        },
+    });
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch component properties: ${errorText}`);
+    }
+    const json: any = await response.json();
+    const props: any[] = Array.isArray(json?.properties) ? json.properties : (Array.isArray(json) ? json : []);
+    const result = props.map((p: any) => {
+        const propertyId = typeof p?.propertyId === 'string'
+            ? p.propertyId
+            : (typeof p?.id === 'string' ? p.id : '');
+        const text: string | undefined =
+            typeof p?.text === 'string' ? p.text
+            : (typeof p?.html === 'string' ? p.html : undefined);
+        return { propertyId, text };
+    }).filter((p: any) => !!p.propertyId);
+    return result;
+}
+
+/**
+ * Update component properties for a given locale via Data API
+ * Expects properties: [{ propertyId, text }]
+ */
+async function updateComponentProperties(
+    siteId: string,
+    componentId: string,
+    localeId: string,
+    properties: Array<{ propertyId: string; text: string }>,
+    token: string,
+    branchId?: string | null
+): Promise<void> {
+    const url = new URL(`https://api.webflow.com/v2/sites/${siteId}/components/${componentId}/properties`);
+    url.searchParams.set('localeId', localeId);
+    if (branchId) url.searchParams.set('branchId', branchId);
+
+    const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'accept-version': '1.0.0',
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ properties }),
+    });
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to update component properties for locale ${localeId}: ${errorText}`);
+    }
+    const result: any = await response.json().catch(() => ({}));
+    if (Array.isArray(result?.errors) && result.errors.length > 0) {
+        const renderedErrors = result.errors.map((e: any) => typeof e === 'string' ? e : JSON.stringify(e)).join(', ');
+        throw new Error(`Update component properties errors for locale ${localeId}: ${renderedErrors}`);
+    }
+}
+
 async function updateComponentContent(
     siteId: string,
     componentId: string,
@@ -458,7 +530,7 @@ export async function POST(request: NextRequest) {
                 await updatePageContent(pageId, locale.id, allUpdates, token, branchId);
             }
 
-            // Additionally, for component instances with no property overrides, update component definition content for this locale
+            // Additionally, for component instances with no property overrides, update component definition PROPERTIES for this locale via Data API
             const uniqueComponentIds = Array.from(new Set(
                 (pageContent.nodes || [])
                     .filter(n => n.type === 'component-instance' && (!n.propertyOverrides || n.propertyOverrides.length === 0) && typeof n.componentId === 'string')
@@ -466,44 +538,25 @@ export async function POST(request: NextRequest) {
             ));
 
             for (const componentId of uniqueComponentIds) {
-                const comp = await fetchComponentContent(siteId, componentId, token, branchId);
-                const compTextNodes = comp.nodes.filter(n => n.type === 'text' && (
-                    (typeof n.html === 'string' && n.html.trim().length > 0) ||
-                    (typeof n.text === 'string' && n.text.trim().length > 0)
-                ));
-                if (compTextNodes.length === 0) continue;
+                // Fetch component properties to translate their default values
+                const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
+                const translatableProps = properties.filter(p => typeof p.text === 'string' && p.text.trim().length > 0);
+                if (translatableProps.length === 0) continue;
 
-                const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
+                const compSources = translatableProps.map(p => p.text as string);
                 const compTranslations = await translateBatch(compSources, {
                     targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                     sourceLanguage: 'en',
                     context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
                 });
 
-                const getRootTag = (html?: string): string | undefined => {
-                    if (!html || typeof html !== 'string') return undefined;
-                    const m = html.trim().match(/^<([a-z0-9-]+)\b/i);
-                    return m ? m[1].toLowerCase() : undefined;
-                };
-
-                const escapeHtml = (str: string): string => str
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;');
-
-                const ensureWrapped = (content: string, tag?: string): string => {
-                    const trimmed = (content || '').trim();
-                    if (!tag) return trimmed;
-                    if (trimmed.startsWith('<')) return trimmed;
-                    return `<${tag}>${escapeHtml(trimmed)}</${tag}>`;
-                };
-
-                const compUpdateNodes = compTextNodes.map((n, idx) => ({
-                    nodeId: n.nodeId,
-                    text: ensureWrapped(compTranslations[idx] ?? compSources[idx] ?? '', getRootTag(n.html)),
+                // Build properties payload with translated text (HTML preserved by translator)
+                const propertiesPayload = translatableProps.map((p, idx) => ({
+                    propertyId: p.propertyId,
+                    text: compTranslations[idx] ?? p.text ?? '',
                 }));
 
-                await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
+                await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
             }
 
             completedLocales.push(locale.displayName);
