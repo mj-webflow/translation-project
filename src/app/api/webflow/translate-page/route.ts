@@ -449,8 +449,21 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Step 2 & 3: Translate and update for each selected secondary locale (in parallel)
-        await Promise.all(targetLocales.map(async (locale: any) => {
+        // Helper to batch process locales (3 at a time to avoid rate limits)
+        const BATCH_SIZE = 3;
+        const batchLocales = (arr: any[], size: number): any[][] => {
+            const batches = [];
+            for (let i = 0; i < arr.length; i += size) {
+                batches.push(arr.slice(i, i + size));
+            }
+            return batches;
+        };
+
+        const localeBatches = batchLocales(targetLocales, BATCH_SIZE);
+
+        // Step 2 & 3: Translate and update for each selected secondary locale (batched 3 at a time)
+        for (const batch of localeBatches) {
+            await Promise.all(batch.map(async (locale: any) => {
                 console.log(`Updating locale ${locale.displayName} (${locale.tag}) with translated text...`);
 
                 const sources = textNodes.map((node) => (
@@ -560,7 +573,8 @@ export async function POST(request: NextRequest) {
             }
 
             completedLocales.push(locale.displayName);
-        }))
+        }));
+        }
 
 		console.log(`Translation complete for page ${pageId}. Updated ${completedLocales.length} locales.`);
 
