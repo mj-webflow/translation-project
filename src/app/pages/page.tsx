@@ -9,6 +9,10 @@ interface TranslationProgress {
   currentLocale?: string;
   error?: string;
   completedLocales: string[];
+  totalLocales?: number;
+  currentStep?: string;
+  nodesCount?: number;
+  componentsCount?: number;
 }
 
 export default function WebflowPagesPage() {
@@ -97,12 +101,18 @@ export default function WebflowPagesPage() {
     }
     
     // Initialize progress tracking
+    const selectedLocaleNames = locales.secondary
+      .filter((l: any) => selectedLocaleIds.includes(l.id))
+      .map((l: any) => l.displayName || l.tag);
+    
     setTranslationProgress(prev => ({
       ...prev,
       [pageId]: {
         pageId,
         status: 'fetching',
         completedLocales: [],
+        totalLocales: selectedLocaleIds.length,
+        currentStep: 'Fetching page content...',
       }
     }));
 
@@ -110,12 +120,23 @@ export default function WebflowPagesPage() {
       // Step 1: Fetch page content
       setTranslationProgress(prev => ({
         ...prev,
-        [pageId]: { ...prev[pageId], status: 'fetching' }
+        [pageId]: { ...prev[pageId], status: 'fetching', currentStep: 'Fetching page content...' }
       }));
 
       const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
       const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
       const branchId = page.branchId ? `&branchId=${encodeURIComponent(page.branchId)}` : '';
+      
+      // Update status to translating
+      setTranslationProgress(prev => ({
+        ...prev,
+        [pageId]: { 
+          ...prev[pageId], 
+          status: 'translating', 
+          currentStep: `Translating to ${selectedLocaleNames.join(', ')}...` 
+        }
+      }));
+      
       const response = await fetch(`/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -136,7 +157,9 @@ export default function WebflowPagesPage() {
         [pageId]: {
           ...prev[pageId],
           status: 'complete',
-          completedLocales: result.completedLocales || []
+          completedLocales: result.completedLocales || [],
+          currentStep: `Completed! Translated ${result.nodesTranslated || 0} nodes to ${result.completedLocales?.length || 0} locale(s)`,
+          nodesCount: result.nodesTranslated,
         }
       }));
 
@@ -399,13 +422,20 @@ export default function WebflowPagesPage() {
                       {progress && (
                         <div className="mt-3 p-3 bg-zinc-50 dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-700">
                           {progress.status === 'complete' && (
-                            <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                              </svg>
-                              <span className="text-sm font-medium">
-                                Translation complete! {progress.completedLocales.length} locale(s) updated
-                              </span>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                                <span className="text-sm font-medium">
+                                  Translation complete!
+                                </span>
+                              </div>
+                              {progress.currentStep && (
+                                <div className="text-xs text-zinc-600 dark:text-zinc-400 ml-6">
+                                  {progress.currentStep}
+                                </div>
+                              )}
                             </div>
                           )}
                           {progress.status === 'error' && (
@@ -417,13 +447,25 @@ export default function WebflowPagesPage() {
                             </div>
                           )}
                           {isTranslating && (
-                            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                              <span className="text-sm font-medium">
-                                {progress.status === 'fetching' && 'Fetching page content...'}
-                                {progress.status === 'translating' && `Translating to ${progress.currentLocale}...`}
-                                {progress.status === 'updating' && `Updating ${progress.currentLocale}...`}
-                              </span>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                <span className="text-sm font-medium">
+                                  {progress.status === 'fetching' && 'Preparing translation...'}
+                                  {progress.status === 'translating' && 'Translating content...'}
+                                  {progress.status === 'updating' && 'Updating content...'}
+                                </span>
+                              </div>
+                              {progress.currentStep && (
+                                <div className="text-xs text-zinc-600 dark:text-zinc-400 ml-6">
+                                  {progress.currentStep}
+                                </div>
+                              )}
+                              {progress.totalLocales && (
+                                <div className="text-xs text-zinc-500 dark:text-zinc-500 ml-6">
+                                  Processing {progress.totalLocales} locale(s)
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
