@@ -2,7 +2,7 @@
 
 A production-ready Next.js application for automated translation of Webflow pages using AI-powered translation with full support for nested components, HTML preservation, and batch processing.
 
-## 🚀 Features
+## Features
 
 - **AI-Powered Translation**: Integrates with OpenAI GPT-4 for high-quality translations
 - **Multi-Locale Support**: Translate pages to multiple secondary locales simultaneously
@@ -13,14 +13,14 @@ A production-ready Next.js application for automated translation of Webflow page
 - **Real-Time Progress**: Detailed progress tracking with status updates
 - **Selective Translation**: Choose which locales to translate via UI checkboxes
 
-## 📋 Prerequisites
+## Prerequisites
 
 - Node.js 18+ and npm
 - Webflow site with localization enabled
 - Webflow API token with appropriate permissions (can be entered via UI)
 - OpenAI API key for translation (must be in environment variables)
 
-## 🛠️ Installation
+## Installation
 
 1. **Clone the repository**
    ```bash
@@ -56,14 +56,14 @@ A production-ready Next.js application for automated translation of Webflow page
    
    Navigate to [http://localhost:3000](http://localhost:3000)
 
-## 📖 Usage
+## Usage
 
 ### Translating Pages
 
 1. Navigate to `/pages` to see all Webflow pages
 2. Select target locales using the checkboxes at the top
 3. Click the "Translate" button on any page
-4. Monitor real-time progress as the translation proceeds
+4. Monitor real time progress as the translation proceeds
 5. View success message with translation statistics
 
 ### Features Available
@@ -74,7 +74,7 @@ A production-ready Next.js application for automated translation of Webflow page
 - **Progress Tracking**: Real-time updates showing current step and locale
 - **Error Handling**: Clear error messages with actionable feedback
 
-## 🏗️ Architecture
+## Architecture
 
 ### Project Structure
 
@@ -113,7 +113,7 @@ translation-project/
 - **APIs**: Webflow Data API v2
 - **Language**: TypeScript
 
-## 🔧 Configuration
+## Configuration
 
 ### Webflow API Token
 
@@ -143,12 +143,12 @@ translation-project/
 3. Create a new secret key
 4. **Must** add to `.env.local` file (cannot be entered via UI for security)
 
-## 📚 Documentation
+## Documentation
 
 - **[Setup Guide](./README_SETUP.md)**: Detailed installation and configuration
 - **[Translation Workflow](./TRANSLATION_WORKFLOW.md)**: How translation works under the hood
 
-## 🚦 Translation Process
+## Translation Process
 
 1. **Fetch Locales**: Retrieves primary and secondary locales from Webflow
 2. **Fetch Page Content**: Gets page DOM including text nodes and components
@@ -164,7 +164,7 @@ translation-project/
    - Processes locales in batches of 3
 6. **Complete**: Shows success with statistics
 
-## ⚙️ Advanced Features
+## Advanced Features
 
 ### HTML Preservation
 
@@ -190,7 +190,7 @@ Supports multiple component scenarios:
 - Optimizes translation speed
 - Handles large page sets efficiently
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -215,7 +215,7 @@ Supports multiple component scenarios:
 
 Enable detailed logging by checking the browser console and terminal output during translation.
 
-## 🚀 Deployment
+## Deployment
 
 ### Vercel (Recommended)
 
@@ -232,21 +232,21 @@ The app can be deployed to any platform supporting Next.js:
 - Railway
 - Render
 
-## 📈 Performance
+## Performance
 
 - **Translation Speed**: ~2-5 seconds per locale (depends on content size)
 - **Batch Size**: 3 locales processed simultaneously
 - **API Calls**: Optimized to minimize Webflow API requests
 - **Caching**: No caching (always fetches fresh content)
 
-## 🔐 Security
+## Security
 
 - API tokens stored in environment variables
 - No client-side exposure of credentials
 - Server-side API calls only
 - Input validation on all endpoints
 
-## 🤝 Contributing
+## Contributing
 
 This is a production application. For modifications:
 1. Test thoroughly in development
@@ -254,11 +254,11 @@ This is a production application. For modifications:
 3. Check component handling
 4. Test with multiple locales
 
-## 📄 License
+## License
 
 Private project - All rights reserved
 
-## 🆘 Support
+## Support
 
 For issues or questions:
 1. Check the documentation files
@@ -268,4 +268,4 @@ For issues or questions:
 
 ---
 
-**Built with ❤️ using Next.js, Webflow API, and OpenAI**
+**Built using Next.js, Webflow API, and OpenAI**
