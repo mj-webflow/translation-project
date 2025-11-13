@@ -31,9 +31,10 @@ export default function WebflowPagesPage() {
         setLoading(true);
         const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
         const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
+        const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
         // 1) Fetch locales first
-        const localesResp = await fetch(`/api/webflow/locales${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}`, {
+        const localesResp = await fetch(`${basePath}/api/webflow/locales${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}`, {
           headers: storedToken ? { 'x-webflow-token': storedToken } : {},
           cache: 'no-store',
         });
@@ -47,7 +48,7 @@ export default function WebflowPagesPage() {
         // Default selection: none. User must select at least one secondary locale before translating
 
         // 2) Then fetch pages
-        const pagesResp = await fetch(`/api/webflow/pages${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}` , {
+        const pagesResp = await fetch(`${basePath}/api/webflow/pages${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}` , {
           headers: storedToken ? { 'x-webflow-token': storedToken } : {},
           cache: 'no-store',
         });
@@ -126,6 +127,7 @@ export default function WebflowPagesPage() {
       const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
       const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
       const branchId = page.branchId ? `&branchId=${encodeURIComponent(page.branchId)}` : '';
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
       
       // Update status to translating
       setTranslationProgress(prev => ({
@@ -137,7 +139,7 @@ export default function WebflowPagesPage() {
         }
       }));
       
-      const response = await fetch(`/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
+      const response = await fetch(`${basePath}/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         ...(storedToken ? { headers: { 'Content-Type': 'application/json', 'x-webflow-token': storedToken } } : {}),

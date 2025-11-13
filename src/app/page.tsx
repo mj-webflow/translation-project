@@ -18,7 +18,8 @@ export default function Home() {
       const effectiveSiteId = siteId || (typeof window !== 'undefined' ? localStorage.getItem('webflow_site_id') || '' : '');
       const effectiveToken = apiKey || (typeof window !== 'undefined' ? localStorage.getItem('webflow_api_token') || '' : '');
 
-      const resp = await fetch(`/api/webflow/locales?siteId=${encodeURIComponent(effectiveSiteId)}`, {
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+      const resp = await fetch(`${basePath}/api/webflow/locales?siteId=${encodeURIComponent(effectiveSiteId)}`, {
         cache: 'no-store',
         headers: effectiveToken ? { 'x-webflow-token': effectiveToken } : {},
       });
