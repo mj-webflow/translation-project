@@ -43,9 +43,16 @@ A production-ready Next.js application for automated translation of Webflow page
    # Webflow API Configuration (Optional - can be set via UI form instead)
    # WEBFLOW_API_TOKEN=your_webflow_api_token_here
    # WEBFLOW_SITE_ID=your_site_id_here
+   
+   # Base Path for Webflow Cloud (Required for Cloudflare Workers deployment)
+   # This should match your mount path in Webflow Cloud (e.g., /app, /admin)
+   # Leave empty for local development
+   NEXT_PUBLIC_BASE_PATH=
    ```
    
-   **Note**: Webflow credentials can be entered via the homepage form and are stored in browser localStorage. Environment variables are optional fallbacks.
+   **Note**: 
+   - Webflow credentials can be entered via the homepage form and are stored in browser localStorage. Environment variables are optional fallbacks.
+   - `NEXT_PUBLIC_BASE_PATH` is required when deploying to Webflow Cloud with a custom mount path. See [Webflow Cloud documentation](https://developers.webflow.com/webflow-cloud/bring-your-own-app) for details.
 
 4. **Run the development server**
    ```bash

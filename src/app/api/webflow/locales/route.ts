@@ -43,3 +43,6 @@ export async function GET(request: NextRequest) {
 		);
 	}
 }
+
+// Configure for Edge runtime (Cloudflare Workers)
+export const runtime = 'edge';

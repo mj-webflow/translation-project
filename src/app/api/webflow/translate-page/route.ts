@@ -887,7 +887,8 @@ export async function POST(request: NextRequest) {
 	}
 }
 
-// Increase timeout for large translation jobs
-export const maxDuration = 300; // 5 minutes (Vercel Pro limit)
+// Configure for Edge runtime (Cloudflare Workers)
+export const runtime = 'edge';
+export const maxDuration = 300; // 5 minutes
 export const dynamic = 'force-dynamic';
 
