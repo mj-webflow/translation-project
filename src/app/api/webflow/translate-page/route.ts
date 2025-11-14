@@ -520,36 +520,70 @@ async function updatePageContentSingle(
     }
 }
 
+// Helper to send keepalive messages
+function createKeepAliveStream(encoder: TextEncoder) {
+    let keepAliveInterval: NodeJS.Timeout | null = null;
+    
+    return {
+        start(controller: ReadableStreamDefaultController) {
+            // Send a comment every 10 seconds to keep connection alive
+            keepAliveInterval = setInterval(() => {
+                try {
+                    controller.enqueue(encoder.encode(': keepalive\n\n'));
+                } catch (e) {
+                    // Stream might be closed
+                    if (keepAliveInterval) clearInterval(keepAliveInterval);
+                }
+            }, 10000);
+        },
+        stop() {
+            if (keepAliveInterval) {
+                clearInterval(keepAliveInterval);
+                keepAliveInterval = null;
+            }
+        }
+    };
+}
+
 export async function POST(request: NextRequest) {
-    try {
-        const overrideToken = request.headers.get('x-webflow-token') || '';
-        const { searchParams } = new URL(request.url);
-        const siteId = searchParams.get('siteId') || WEBFLOW_SITE_ID;
-        const branchId = searchParams.get('branchId');
-        const token = overrideToken || WEBFLOW_API_TOKEN || '';
+    const encoder = new TextEncoder();
+    
+    // Create a streaming response
+    const stream = new ReadableStream({
+        async start(controller) {
+            const keepAlive = createKeepAliveStream(encoder);
+            keepAlive.start(controller);
+            
+            try {
+                const overrideToken = request.headers.get('x-webflow-token') || '';
+                const { searchParams } = new URL(request.url);
+                const siteId = searchParams.get('siteId') || WEBFLOW_SITE_ID;
+                const branchId = searchParams.get('branchId');
+                const token = overrideToken || WEBFLOW_API_TOKEN || '';
 
-        const { pageId, targetLocaleIds } = await request.json();
+                const body = await request.json();
+                const { pageId, targetLocaleIds } = body;
 
-		if (!pageId) {
-			return NextResponse.json(
-				{ error: 'Page ID is required' },
-				{ status: 400 }
-			);
-		}
+                if (!pageId) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Page ID is required' })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
 
-        if (!token) {
-            return NextResponse.json(
-                { error: 'Webflow API token not configured. Provide x-webflow-token header or set WEBFLOW_API_TOKEN.' },
-                { status: 500 }
-            );
-        }
+                if (!token) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Webflow API token not configured' })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
 
-        if (!siteId) {
-            return NextResponse.json(
-                { error: 'Missing siteId. Provide ?siteId=... or set WEBFLOW_SITE_ID.' },
-                { status: 400 }
-            );
-        }
+                if (!siteId) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Missing siteId' })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
 
 		console.log(`Starting translation for page: ${pageId}`);
 
@@ -866,25 +900,38 @@ export async function POST(request: NextRequest) {
         }));
         }
 
-		console.log(`Translation complete for page ${pageId}. Updated ${completedLocales.length} locales.`);
+                console.log(`Translation complete for page ${pageId}. Updated ${completedLocales.length} locales.`);
 
-		return NextResponse.json({
-			success: true,
-			pageId,
-			completedLocales,
-			nodesTranslated: textNodes.length,
-		});
+                // Send final success message
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    success: true,
+                    pageId,
+                    completedLocales,
+                    nodesTranslated: textNodes.length,
+                })}\n\n`));
+                
+                controller.close();
+                keepAlive.stop();
 
-	} catch (error) {
-		console.error('Translation error:', error);
-		return NextResponse.json(
-			{
-				error: 'Translation failed',
-				details: error instanceof Error ? error.message : 'Unknown error',
-			},
-			{ status: 500 }
-		);
-	}
+            } catch (error) {
+                console.error('Translation error:', error);
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    error: 'Translation failed',
+                    details: error instanceof Error ? error.message : 'Unknown error',
+                })}\n\n`));
+                controller.close();
+                keepAlive.stop();
+            }
+        }
+    });
+
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+        },
+    });
 }
 
 // Configure for long-running translations
