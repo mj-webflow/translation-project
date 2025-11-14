@@ -887,8 +887,7 @@ export async function POST(request: NextRequest) {
 	}
 }
 
-// Configure for Edge runtime (Cloudflare Workers)
-export const runtime = 'edge';
+// Configure for long-running translations
 export const maxDuration = 300; // 5 minutes
 export const dynamic = 'force-dynamic';
 
