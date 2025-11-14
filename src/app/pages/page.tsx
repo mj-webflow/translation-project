@@ -146,24 +146,52 @@ export default function WebflowPagesPage() {
         body: JSON.stringify({ pageId, targetLocaleIds: selectedLocaleIds })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Translation failed');
+      if (!response.ok || !response.body) {
+        throw new Error('Translation request failed');
       }
 
-      const result = await response.json();
+      // Read the streaming response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-      // Update progress with completed translation
-      setTranslationProgress(prev => ({
-        ...prev,
-        [pageId]: {
-          ...prev[pageId],
-          status: 'complete',
-          completedLocales: result.completedLocales || [],
-          currentStep: `Completed! Translated ${result.nodesTranslated || 0} nodes to ${result.completedLocales?.length || 0} locale(s)`,
-          nodesCount: result.nodesTranslated,
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.error) {
+                throw new Error(data.error);
+              }
+              
+              if (data.success) {
+                // Update progress with completed translation
+                setTranslationProgress(prev => ({
+                  ...prev,
+                  [pageId]: {
+                    ...prev[pageId],
+                    status: 'complete',
+                    completedLocales: data.completedLocales || [],
+                    currentStep: `Completed! Translated ${data.nodesTranslated || 0} nodes to ${data.completedLocales?.length || 0} locale(s)`,
+                    nodesCount: data.nodesTranslated,
+                  }
+                }));
+              }
+            } catch (e) {
+              console.warn('Failed to parse SSE message:', line);
+            }
+          }
         }
-      }));
+      }
 
       // Refresh pages list
       const storedSiteIdRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
