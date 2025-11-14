@@ -77,12 +77,13 @@ export default function Home() {
           </div>
         </div>
         <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <button
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[200px] cursor-pointer"
-            onClick={(e) => handleViewPages(e as any)}
+          <Link
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[200px]"
+            href="/pages"
+            onClick={handleViewPages}
           >
             View Webflow Pages
-          </button>
+          </Link>
         </div>
       </main>
     </div>
