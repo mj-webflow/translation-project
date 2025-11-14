@@ -36,7 +36,8 @@ export default function Home() {
     } catch (err) {
       console.error('Error loading locales', err);
     } finally {
-      window.location.href = '/pages';
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+      window.location.href = `${basePath}/pages`;
     }
   };
 
@@ -76,13 +77,12 @@ export default function Home() {
           </div>
         </div>
         <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <Link
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[200px]"
-            href="/pages"
-            onClick={handleViewPages}
+          <button
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[200px] cursor-pointer"
+            onClick={(e) => handleViewPages(e as any)}
           >
             View Webflow Pages
-          </Link>
+          </button>
         </div>
       </main>
     </div>
