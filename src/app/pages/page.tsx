@@ -139,16 +139,31 @@ export default function WebflowPagesPage() {
         }
       }));
       
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (storedToken) {
+        headers['x-webflow-token'] = storedToken;
+      }
+      
       const response = await fetch(`${basePath}/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        ...(storedToken ? { headers: { 'Content-Type': 'application/json', 'x-webflow-token': storedToken } } : {}),
+        headers,
         body: JSON.stringify({ pageId, targetLocaleIds: selectedLocaleIds })
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Translation failed');
+        let errorMessage = 'Translation failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          // If response is not JSON, get the text (likely an HTML error page)
+          const text = await response.text();
+          console.error('Non-JSON error response:', text.substring(0, 500));
+          errorMessage = `API returned ${response.status}: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
