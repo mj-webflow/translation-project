@@ -171,6 +171,7 @@ export default function WebflowPagesPage() {
               if (line.startsWith('data: ')) {
                 try {
                   const data = JSON.parse(line.slice(6));
+                  console.log(`📨 SSE message for ${localeName}:`, data);
                   
                   if (data.error) {
                     throw new Error(data.error);
@@ -178,6 +179,7 @@ export default function WebflowPagesPage() {
                   
                   if (data.status) {
                     // Update progress with status messages
+                    console.log(`📊 Updating progress for ${localeName}:`, data.message || data.status);
                     setTranslationProgress(prev => ({
                       ...prev,
                       [pageId]: {
