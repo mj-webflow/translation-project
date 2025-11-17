@@ -534,7 +534,7 @@ export default function WebflowPagesPage() {
                               )}
                               {progress.totalLocales && (
                                 <div className="text-xs text-zinc-500 dark:text-zinc-500 ml-6">
-                                  {progress.completedLocales?.length || 0}/{progress.totalLocales} locale(s) completed
+                                  {progress.completedLocales?.length || 0}/{progress.totalLocales} locale(z) completed
                                 </div>
                               )}
                             </div>
