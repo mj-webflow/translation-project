@@ -161,17 +161,42 @@ export default function WebflowPagesPage() {
           while (true) {
             const { done, value } = await reader.read();
             
-            if (done) break;
+            if (done) {
+              console.log(`Stream ended for ${localeName}. Completed locales so far:`, completedLocales);
+              // Process any remaining buffer
+              if (buffer.trim()) {
+                console.log(`Processing remaining buffer for ${localeName}:`, buffer);
+                if (buffer.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(buffer.slice(6));
+                    console.log(`Final SSE message from buffer for ${localeName}:`, data);
+                    if (data.success) {
+                      completedLocales.push(localeName);
+                      totalNodesTranslated += data.nodesTranslated || 0;
+                      console.log(`✓ Completed translation to ${localeName} (from buffer). Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
+                    }
+                  } catch (e) {
+                    console.warn('Failed to parse final buffer:', buffer);
+                  }
+                }
+              }
+              break;
+            }
             
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
             
             for (const line of lines) {
+              if (line.trim() === '' || line.startsWith(':')) {
+                // Skip empty lines and keepalive comments
+                continue;
+              }
+              
               if (line.startsWith('data: ')) {
                 try {
                   const data = JSON.parse(line.slice(6));
-                  console.log(`📨 SSE message for ${localeName}:`, data);
+                  console.log(`SSE message for ${localeName}:`, data);
                   
                   if (data.error) {
                     throw new Error(data.error);
@@ -179,7 +204,7 @@ export default function WebflowPagesPage() {
                   
                   if (data.status) {
                     // Update progress with status messages
-                    console.log(`📊 Updating progress for ${localeName}:`, data.message || data.status);
+                    console.log(`Updating progress for ${localeName}:`, data.message || data.status);
                     setTranslationProgress(prev => ({
                       ...prev,
                       [pageId]: {
@@ -193,7 +218,8 @@ export default function WebflowPagesPage() {
                     // Locale completed successfully
                     completedLocales.push(localeName);
                     totalNodesTranslated += data.nodesTranslated || 0;
-                    console.log(`✓ Completed translation to ${localeName}`);
+                    console.log(`✓ Completed translation to ${localeName}. Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
+                    console.log(`Completed locales array:`, completedLocales);
                     
                     // Update progress with completed locale
                     setTranslationProgress(prev => ({
@@ -218,13 +244,17 @@ export default function WebflowPagesPage() {
             ...prev,
             [pageId]: {
               ...prev[pageId],
-              currentStep: `⚠ Failed to translate to ${localeName}, continuing...`,
+              currentStep: `Failed to translate to ${localeName}, continuing...`,
             }
           }));
         }
       }
 
       // All locales processed
+      console.log(`🎉 All locales processed. Final completed count: ${completedLocales.length}/${selectedLocaleIds.length}`);
+      console.log(`Final completed locales array:`, completedLocales);
+      console.log(`Total nodes translated:`, totalNodesTranslated);
+      
       setTranslationProgress(prev => ({
         ...prev,
         [pageId]: {
@@ -536,7 +566,7 @@ export default function WebflowPagesPage() {
                               )}
                               {progress.totalLocales && (
                                 <div className="text-xs text-zinc-500 dark:text-zinc-500 ml-6">
-                                  {progress.completedLocales?.length || 0}/{progress.totalLocales} locale(z) completed
+                                  {progress.completedLocales?.length || 0}/{progress.totalLocales} locale(s) completed
                                 </div>
                               )}
                             </div>
