@@ -192,6 +192,16 @@ export default function WebflowPagesPage() {
                     completedLocales.push(localeName);
                     totalNodesTranslated += data.nodesTranslated || 0;
                     console.log(`✓ Completed translation to ${localeName}`);
+                    
+                    // Update progress with completed locale
+                    setTranslationProgress(prev => ({
+                      ...prev,
+                      [pageId]: {
+                        ...prev[pageId],
+                        completedLocales: [...completedLocales],
+                        currentStep: `✓ Completed ${localeName} (${completedLocales.length}/${selectedLocaleIds.length})`,
+                      }
+                    }));
                   }
                 } catch (e) {
                   console.warn('Failed to parse SSE message:', line);
@@ -524,7 +534,7 @@ export default function WebflowPagesPage() {
                               )}
                               {progress.totalLocales && (
                                 <div className="text-xs text-zinc-500 dark:text-zinc-500 ml-6">
-                                  Processing {progress.totalLocales} locale(s)
+                                  {progress.completedLocales?.length || 0}/{progress.totalLocales} locale(s) completed
                                 </div>
                               )}
                             </div>
