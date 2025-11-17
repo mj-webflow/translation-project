@@ -75,7 +75,7 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
         console.log(`Fetched ${domNodes.length} nodes (offset: ${offset - domNodes.length}, total: ${total}, fetched so far: ${allNodes.length})`);
         
         if (hasMore) {
-            console.log(`  → More nodes available, fetching next batch...`);
+            console.log(`More nodes available, fetching next batch...`);
         }
     }
 
@@ -253,7 +253,7 @@ async function fetchComponentProperties(
         props = json.componentMetadata.properties;
     }
     
-    console.log(`      Found ${props.length} raw properties in response`);
+    console.log(`Found ${props.length} raw properties in response`);
     
     const result = props.map((p: any) => {
         // Try multiple possible field names for propertyId
@@ -276,11 +276,11 @@ async function fetchComponentProperties(
         }
             
         const preview = typeof text === 'string' ? text.substring(0, 50) : 'undefined';
-        console.log(`      Property: id=${propertyId}, text=${preview}...`);
+        console.log(`Property: id=${propertyId}, text=${preview}...`);
         return { propertyId, text };
     }).filter((p: any) => !!p.propertyId);
     
-    console.log(`      Returning ${result.length} properties with IDs`);
+    console.log(` Returning ${result.length} properties with IDs`);
     return result;
 }
 
@@ -419,7 +419,7 @@ async function updatePageContent(
             const batchNum = Math.floor(i / NODE_BATCH_SIZE) + 1;
             const totalBatches = Math.ceil(nodes.length / NODE_BATCH_SIZE);
             
-            console.log(`    Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes)...`);
+            console.log(`Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes)...`);
             await updatePageContentSingle(pageId, localeId, batch, token, branchId);
             
             // Small delay between batches
@@ -684,7 +684,7 @@ export async function POST(request: NextRequest) {
                         message: `Completed translating text nodes, preparing updates...`,
                     })}\n\n`));
                 } catch (error) {
-                    console.error(`❌ Failed to translate text nodes for ${locale.displayName}:`, error);
+                    console.error(`Failed to translate text nodes for ${locale.displayName}:`, error);
                     console.log('Failed sources:', sources.map((s, i) => `[${i}] ${s.substring(0, 100)}...`));
                     // Use original sources as fallback
                     translations = sources;
@@ -757,7 +757,7 @@ export async function POST(request: NextRequest) {
 
                             componentUpdateNodes = Array.from(group.entries()).map(([nodeId, propertyOverrides]) => ({ nodeId, propertyOverrides }));
                         } catch (error) {
-                            console.error(`❌ Failed to translate component property overrides for ${locale.displayName}:`, error);
+                            console.error(`Failed to translate component property overrides for ${locale.displayName}:`, error);
                             console.log('Failed overrides:', overrideItems.map(i => `${i.nodeId}/${i.propertyId}: ${i.source.substring(0, 100)}...`));
                         }
                     }
@@ -783,7 +783,7 @@ export async function POST(request: NextRequest) {
                         message: `Updated page content, processing components...`,
                     })}\n\n`));
                 } catch (error) {
-                    console.error(`❌ Failed to update page content for ${locale.displayName}:`, error);
+                    console.error(`Failed to update page content for ${locale.displayName}:`, error);
                     console.log('Failed updates:', allUpdates.map(u => {
                         const preview = 'text' in u ? (u.text || '').substring(0, 100) : 
                                        'propertyOverrides' in u ? `${u.propertyOverrides?.length || 0} overrides` : 'unknown';
@@ -800,7 +800,7 @@ export async function POST(request: NextRequest) {
             pageContent.nodes.filter(n => n.type === 'component-instance').forEach(comp => {
                 const hasOverrides = comp.propertyOverrides && comp.propertyOverrides.length > 0;
                 const hasComponentId = typeof comp.componentId === 'string';
-                console.log(`  Component ${comp.componentId}: hasComponentId=${hasComponentId}, hasOverrides=${hasOverrides}, overrideLength=${comp.propertyOverrides?.length || 0}, willTranslate=${!hasOverrides && hasComponentId}`);
+                console.log(`Component ${comp.componentId}: hasComponentId=${hasComponentId}, hasOverrides=${hasOverrides}, overrideLength=${comp.propertyOverrides?.length || 0}, willTranslate=${!hasOverrides && hasComponentId}`);
             });
             
             const topLevelComponentIds = Array.from(new Set(
@@ -855,9 +855,9 @@ export async function POST(request: NextRequest) {
                 
                 // Try to fetch and translate component properties first
                 const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
-                console.log(`    Fetched ${properties.length} properties for component ${componentId}`);
+                console.log(`Fetched ${properties.length} properties for component ${componentId}`);
                 const translatableProps = properties.filter(p => typeof p.text === 'string' && p.text.trim().length > 0);
-                console.log(`    ${translatableProps.length} properties have translatable text`);
+                console.log(` ${translatableProps.length} properties have translatable text`);
                 
                 if (translatableProps.length > 0) {
                     try {
@@ -874,25 +874,25 @@ export async function POST(request: NextRequest) {
                             text: compTranslations[idx] ?? p.text ?? '',
                         }));
 
-                        console.log(`    Updating ${propertiesPayload.length} properties for component ${componentId} in locale ${locale.displayName}`);
+                        console.log(`Updating ${propertiesPayload.length} properties for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
-                        console.log(`    ✓ Component ${componentId} properties updated successfully`);
+                        console.log(`Component ${componentId} properties updated successfully`);
                     } catch (error) {
-                        console.error(`    ❌ Failed to translate/update component ${componentId} properties for ${locale.displayName}:`, error);
-                        console.log(`    Failed properties:`, translatableProps.map(p => `${p.propertyId}: ${(p.text || '').substring(0, 100)}...`));
+                        console.error(`Failed to translate/update component ${componentId} properties for ${locale.displayName}:`, error);
+                        console.log(`Failed properties:`, translatableProps.map(p => `${p.propertyId}: ${(p.text || '').substring(0, 100)}...`));
                     }
                 } else {
                     // If no properties, try to translate DOM text nodes
-                    console.log(`    No properties found, checking DOM text nodes for component ${componentId}...`);
+                    console.log(`No properties found, checking DOM text nodes for component ${componentId}...`);
                     const comp = await fetchComponentContent(siteId, componentId, token, branchId);
                     const compTextNodes = comp.nodes.filter(n => n.type === 'text' && (
                         (typeof n.html === 'string' && n.html.trim().length > 0) ||
                         (typeof n.text === 'string' && n.text.trim().length > 0)
                     ));
-                    console.log(`    Found ${compTextNodes.length} text nodes in component ${componentId} DOM`);
+                    console.log(`Found ${compTextNodes.length} text nodes in component ${componentId} DOM`);
                     
                     if (compTextNodes.length === 0) {
-                        console.log(`    ⚠ Component ${componentId} has no properties and no text nodes to translate`);
+                        console.log(`Component ${componentId} has no properties and no text nodes to translate`);
                         continue;
                     }
 
@@ -927,12 +927,12 @@ export async function POST(request: NextRequest) {
                             text: ensureWrapped(compTranslations[idx] ?? compSources[idx] ?? '', getRootTag(n.html)),
                         }));
 
-                        console.log(`    Updating ${compUpdateNodes.length} DOM text nodes for component ${componentId} in locale ${locale.displayName}`);
+                        console.log(`Updating ${compUpdateNodes.length} DOM text nodes for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
-                        console.log(`    ✓ Component ${componentId} DOM text nodes updated successfully`);
+                        console.log(`Component ${componentId} DOM text nodes updated successfully`);
                     } catch (error) {
-                        console.error(`    ❌ Failed to translate/update component ${componentId} DOM text nodes for ${locale.displayName}:`, error);
-                        console.log(`    Failed text nodes:`, compTextNodes.map(n => `${n.nodeId}: ${((n.html || n.text) || '').substring(0, 100)}...`));
+                        console.error(`Failed to translate/update component ${componentId} DOM text nodes for ${locale.displayName}:`, error);
+                        console.log(`Failed text nodes:`, compTextNodes.map(n => `${n.nodeId}: ${((n.html || n.text) || '').substring(0, 100)}...`));
                     }
                 }
             }
