@@ -666,11 +666,23 @@ export async function POST(request: NextRequest) {
 
                 let translations: string[] = [];
                 try {
+                    // Send progress update before translation
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'translating', 
+                        message: `Starting translation of ${sources.length} text nodes...`,
+                    })}\n\n`));
+                    
                     translations = await translateBatch(sources, {
                         targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                         sourceLanguage: 'en',
                         context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
                     });
+                    
+                    // Send progress update after translation
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'translating', 
+                        message: `Completed translating text nodes, preparing updates...`,
+                    })}\n\n`));
                 } catch (error) {
                     console.error(`❌ Failed to translate text nodes for ${locale.displayName}:`, error);
                     console.log('Failed sources:', sources.map((s, i) => `[${i}] ${s.substring(0, 100)}...`));
@@ -711,6 +723,12 @@ export async function POST(request: NextRequest) {
                 console.log(`Found ${componentNodes.length} component instance(s) with property overrides for ${locale.displayName}`);
                 let componentUpdateNodes: UpdateNode[] = [];
                 if (componentNodes.length > 0) {
+                    // Send progress update for components
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'translating', 
+                        message: `Processing ${componentNodes.length} component instances...`,
+                    })}\n\n`));
+                    
                     const overrideItems: Array<{ nodeId: string; propertyId: string; source: string }> = [];
                     for (const cn of componentNodes) {
                         for (const po of cn.propertyOverrides || []) {
@@ -749,8 +767,21 @@ export async function POST(request: NextRequest) {
             // Send page-level updates first (text nodes and property overrides)
             if (allUpdates.length > 0) {
                 console.log(`Updating ${allUpdates.length} nodes for ${locale.displayName}...`);
+                
+                // Send progress update before updating
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    status: 'updating', 
+                    message: `Updating ${allUpdates.length} nodes in Webflow...`,
+                })}\n\n`));
+                
                 try {
                     await updatePageContent(pageId, locale.id, allUpdates, token, branchId);
+                    
+                    // Send progress update after updating
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'updating', 
+                        message: `Updated page content, processing components...`,
+                    })}\n\n`));
                 } catch (error) {
                     console.error(`❌ Failed to update page content for ${locale.displayName}:`, error);
                     console.log('Failed updates:', allUpdates.map(u => {
@@ -803,8 +834,24 @@ export async function POST(request: NextRequest) {
             console.log(`Found ${allComponentIds.size} component(s) to translate (including nested) for ${locale.displayName}`);
             console.log(`All component IDs to translate:`, Array.from(allComponentIds));
 
+            // Send progress update for component processing
+            if (allComponentIds.size > 0) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    status: 'translating', 
+                    message: `Processing ${allComponentIds.size} component definition(s)...`,
+                })}\n\n`));
+            }
+
+            let processedComponents = 0;
             for (const componentId of allComponentIds) {
-                console.log(`  Processing component ${componentId} for ${locale.displayName}...`);
+                processedComponents++;
+                console.log(`  Processing component ${componentId} for ${locale.displayName}... (${processedComponents}/${allComponentIds.size})`);
+                
+                // Send progress update for each component
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    status: 'translating', 
+                    message: `Processing component ${processedComponents}/${allComponentIds.size}...`,
+                })}\n\n`));
                 
                 // Try to fetch and translate component properties first
                 const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
