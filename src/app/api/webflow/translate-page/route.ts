@@ -562,10 +562,17 @@ export async function POST(request: NextRequest) {
                 const token = overrideToken || WEBFLOW_API_TOKEN || '';
 
                 const body = await request.json();
-                const { pageId, targetLocaleIds } = body;
+                const { pageId, targetLocaleId } = body;
 
                 if (!pageId) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Page ID is required' })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
+
+                if (!targetLocaleId) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Target locale ID is required' })}\n\n`));
                     controller.close();
                     keepAlive.stop();
                     return;
@@ -633,38 +640,25 @@ export async function POST(request: NextRequest) {
 			console.log(`  ${idx + 1}. ${preview}...`);
 		});
 
-		const completedLocales: string[] = [];
+                // Find the target locale
+                const locale = (locales.secondary || []).find((l: any) => l.id === targetLocaleId);
+                if (!locale) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        error: `Locale ${targetLocaleId} not found` 
+                    })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
 
-        // Determine target locales: either selected ones or all secondary if explicitly allowed
-        const targetLocales = Array.isArray(targetLocaleIds) && targetLocaleIds.length > 0
-            ? (locales.secondary || []).filter((l: any) => targetLocaleIds.includes(l.id))
-            : [];
+                // Send progress update
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    status: 'translating', 
+                    message: `Translating ${textNodes.length} text nodes to ${locale.displayName}...`,
+                    totalNodes: textNodes.length
+                })}\n\n`));
 
-        if (!targetLocales || targetLocales.length === 0) {
-            return NextResponse.json(
-                { error: 'No target locales selected. Provide targetLocaleIds (secondary locales).' },
-                { status: 400 }
-            );
-        }
-
-        // Helper to batch process locales (3 at a time to avoid rate limits)
-        const BATCH_SIZE = 3;
-        const batchLocales = (arr: any[], size: number): any[][] => {
-            const batches = [];
-            for (let i = 0; i < arr.length; i += size) {
-                batches.push(arr.slice(i, i + size));
-            }
-            return batches;
-        };
-
-        const localeBatches = batchLocales(targetLocales, BATCH_SIZE);
-
-        // Step 2 & 3: Translate and update for each selected secondary locale (batched 3 at a time)
-        let localeProgress = 0;
-        for (const batch of localeBatches) {
-            await Promise.all(batch.map(async (locale: any) => {
-                localeProgress++;
-                console.log(`\n[${localeProgress}/${targetLocales.length}] Processing locale: ${locale.displayName} (${locale.tag})`);
+                console.log(`\nProcessing locale: ${locale.displayName} (${locale.tag})`);
 
                 const sources = textNodes.map((node) => (
                     typeof node.html === 'string' && node.html.length > 0 ? node.html : (node.text as string)
@@ -896,17 +890,14 @@ export async function POST(request: NextRequest) {
                 }
             }
 
-            completedLocales.push(locale.displayName);
-        }));
-        }
-
-                console.log(`Translation complete for page ${pageId}. Updated ${completedLocales.length} locales.`);
+                console.log(`Translation complete for page ${pageId} to locale ${locale.displayName}.`);
 
                 // Send final success message
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                     success: true,
                     pageId,
-                    completedLocales,
+                    localeId: locale.id,
+                    localeName: locale.displayName,
                     nodesTranslated: textNodes.length,
                 })}\n\n`));
                 
