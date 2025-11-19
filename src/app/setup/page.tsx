@@ -7,17 +7,25 @@ export default function SetupPage() {
   const [siteId, setSiteId] = React.useState('');
   const [apiKey, setApiKey] = React.useState('');
   const [userEmail, setUserEmail] = React.useState('');
+  const [supabase, setSupabase] = React.useState<ReturnType<typeof createClient> | null>(null);
 
   React.useEffect(() => {
-    // Create client only when needed (client-side only)
-    const supabase = createClient();
-    
-    // Get user info
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user?.email) {
-        setUserEmail(user.email);
+    const initSupabase = async () => {
+      try {
+        const client = createClient();
+        setSupabase(client);
+        
+        // Get user info
+        const { data } = await client.auth.getUser();
+        if (data.user?.email) {
+          setUserEmail(data.user.email);
+        }
+      } catch (err) {
+        console.error('Failed to initialize Supabase:', err);
       }
-    });
+    };
+
+    initSupabase();
 
     // Load existing credentials from localStorage
     if (typeof window !== 'undefined') {
@@ -29,10 +37,9 @@ export default function SetupPage() {
   }, []);
 
   const handleLogout = async () => {
-    // Create client only when needed (client-side only)
-    const supabase = createClient();
-    
-    await supabase.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
     window.location.href = `${basePath}/login`;
   };

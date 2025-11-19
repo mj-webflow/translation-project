@@ -11,60 +11,38 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [isValidToken, setIsValidToken] = useState(false);
+  const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
 
   useEffect(() => {
-    const handleAuthToken = async () => {
-      // Create client only when needed (client-side only)
-      const supabase = createClient();
-      
-      // First, check for hash params (from email link)
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const accessToken = hashParams.get('access_token');
-      const refreshToken = hashParams.get('refresh_token');
-      const type = hashParams.get('type');
-      
-      console.log('Hash params:', { accessToken: !!accessToken, refreshToken: !!refreshToken, type });
-      
-      if (accessToken && refreshToken) {
-        try {
-          // Exchange the tokens for a session
-          console.log('Setting session from tokens...');
-          const { data, error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          
-          if (error) {
-            console.error('Error setting session:', error);
-            setError('Invalid or expired link. Please request a new password reset.');
-          } else if (data.session) {
-            console.log('Session established successfully');
-            setIsValidToken(true);
-          } else {
-            setError('Failed to establish session. Please request a new link.');
-          }
-        } catch (err) {
-          console.error('Exception setting session:', err);
-          setError('An error occurred. Please request a new link.');
-        }
-      } else {
-        // No tokens in URL, check if we already have a session
-        const { data: { session } } = await supabase.auth.getSession();
-        console.log('Existing session check:', !!session);
+    const initSupabase = async () => {
+      try {
+        const client = createClient();
+        setSupabase(client);
         
-        if (session) {
+        // Check if we have a valid session from the reset link
+        const { data } = await client.auth.getSession();
+        if (data.session) {
           setIsValidToken(true);
         } else {
-          setError('Invalid or expired link. Please request a new password reset or contact your administrator.');
+          setError('Invalid or expired reset link. Please request a new password reset.');
         }
+      } catch (err) {
+        setError('Authentication service is not configured. Please contact your administrator.');
+        console.error('Failed to initialize Supabase:', err);
       }
     };
     
-    handleAuthToken();
+    initSupabase();
   }, []);
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!supabase) {
+      setError('Authentication service is not available. Please refresh the page.');
+      return;
+    }
+    
     setLoading(true);
     setError('');
     setMessage('');
@@ -82,9 +60,6 @@ export default function ResetPasswordPage() {
     }
 
     try {
-      // Create client only when needed (client-side only)
-      const supabase = createClient();
-      
       const { error } = await supabase.auth.updateUser({
         password: password,
       });
@@ -131,10 +106,10 @@ export default function ResetPasswordPage() {
         
         <div className="w-full">
           <h1 className="text-3xl font-semibold text-center mb-2 text-black dark:text-zinc-50">
-            Set Your Password
+            Reset Password
           </h1>
           <p className="text-center text-zinc-600 dark:text-zinc-400 mb-8">
-            Create a secure password for your account
+            Enter your new password
           </p>
 
           {error && (
