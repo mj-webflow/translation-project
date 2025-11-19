@@ -19,8 +19,6 @@ export default function LoginPage() {
     }
   }, []);
 
-  const supabase = createClient();
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -28,6 +26,9 @@ export default function LoginPage() {
     setMessage('');
 
     try {
+      // Create client only when needed (client-side only)
+      const supabase = createClient();
+      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -74,6 +75,9 @@ export default function LoginPage() {
     setMessage('');
 
     try {
+      // Create client only when needed (client-side only)
+      const supabase = createClient();
+      
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}${basePath}/reset-password`,
