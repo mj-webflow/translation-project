@@ -12,10 +12,11 @@ export default function ResetPasswordPage() {
   const [message, setMessage] = useState('');
   const [isValidToken, setIsValidToken] = useState(false);
 
-  const supabase = createClient();
-
   useEffect(() => {
     const handleAuthToken = async () => {
+      // Create client only when needed (client-side only)
+      const supabase = createClient();
+      
       // First, check for hash params (from email link)
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       const accessToken = hashParams.get('access_token');
@@ -60,7 +61,7 @@ export default function ResetPasswordPage() {
     };
     
     handleAuthToken();
-  }, [supabase.auth]);
+  }, []);
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,6 +82,9 @@ export default function ResetPasswordPage() {
     }
 
     try {
+      // Create client only when needed (client-side only)
+      const supabase = createClient();
+      
       const { error } = await supabase.auth.updateUser({
         password: password,
       });
