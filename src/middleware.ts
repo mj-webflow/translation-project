@@ -1,6 +1,5 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './lib/supabase-config'
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
@@ -9,9 +8,23 @@ export async function middleware(request: NextRequest) {
     },
   })
 
+  // Check if Supabase credentials are configured
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    // No credentials configured - redirect to auth-setup
+    const pathname = request.nextUrl.pathname;
+    if (!pathname.startsWith('/auth-setup')) {
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+      return NextResponse.redirect(new URL(`${basePath}/auth-setup`, request.url));
+    }
+    return response;
+  }
+
   const supabase = createServerClient(
-    SUPABASE_URL,
-    SUPABASE_ANON_KEY,
+    supabaseUrl,
+    supabaseKey,
     {
       cookies: {
         get(name: string) {
