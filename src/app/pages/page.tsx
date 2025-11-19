@@ -27,6 +27,8 @@ export default function WebflowPagesPage() {
   const [selectedLocaleIds, setSelectedLocaleIds] = useState<string[]>([]);
   const [userEmail, setUserEmail] = useState<string>('');
   const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGES_PER_PAGE = 50;
   
   // Initialize Supabase and get user info
   useEffect(() => {
@@ -117,6 +119,17 @@ export default function WebflowPagesPage() {
         page.publishedPath.toLowerCase().includes(searchQuery.toLowerCase())
       );
     });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredPages.length / PAGES_PER_PAGE);
+  const startIndex = (currentPage - 1) * PAGES_PER_PAGE;
+  const endIndex = startIndex + PAGES_PER_PAGE;
+  const paginatedPages = filteredPages.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, searchQuery]);
 
   const publishedCount = pages.filter((p) => !p.draft).length;
   const draftCount = pages.filter((p) => p.draft).length;
@@ -493,7 +506,7 @@ export default function WebflowPagesPage() {
               <p className="text-zinc-600 dark:text-zinc-400">No pages found</p>
             </div>
           ) : (
-            filteredPages.map((page) => {
+            paginatedPages.map((page) => {
               const progress = translationProgress[page.id];
               const isTranslating = progress && progress.status !== 'idle' && progress.status !== 'complete' && progress.status !== 'error';
               
@@ -650,10 +663,81 @@ export default function WebflowPagesPage() {
           )}
         </div>
 
-        {/* Results count */}
+        {/* Pagination */}
         {filteredPages.length > 0 && (
-          <div className="mt-6 text-center text-sm text-zinc-600 dark:text-zinc-400">
-            Showing {filteredPages.length} of {pages.length} pages
+          <div className="mt-6">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                Showing {startIndex + 1}-{Math.min(endIndex, filteredPages.length)} of {filteredPages.length} pages
+                {filteredPages.length !== pages.length && ` (filtered from ${pages.length} total)`}
+              </div>
+              
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                      currentPage === 1
+                        ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
+                        : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 hover:bg-zinc-300 dark:hover:bg-zinc-600'
+                    }`}
+                  >
+                    Previous
+                  </button>
+                  
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
+                      // Show first page, last page, current page, and pages around current
+                      const showPage = 
+                        pageNum === 1 ||
+                        pageNum === totalPages ||
+                        (pageNum >= currentPage - 1 && pageNum <= currentPage + 1);
+                      
+                      const showEllipsis = 
+                        (pageNum === currentPage - 2 && currentPage > 3) ||
+                        (pageNum === currentPage + 2 && currentPage < totalPages - 2);
+                      
+                      if (showEllipsis) {
+                        return (
+                          <span key={pageNum} className="px-2 text-zinc-400 dark:text-zinc-500">
+                            ...
+                          </span>
+                        );
+                      }
+                      
+                      if (!showPage) return null;
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                            currentPage === pageNum
+                              ? 'bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900'
+                              : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 hover:bg-zinc-300 dark:hover:bg-zinc-600'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                      currentPage === totalPages
+                        ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
+                        : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 hover:bg-zinc-300 dark:hover:bg-zinc-600'
+                    }`}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

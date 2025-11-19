@@ -16,7 +16,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const requestUrl = `https://api.webflow.com/v2/sites/${siteId}/pages`;
     const token = overrideToken || WEBFLOW_API_TOKEN;
     if (!token) {
       return NextResponse.json(
@@ -24,42 +23,72 @@ export async function GET(request: NextRequest) {
         { status: 500 }
       );
     }
+
     const requestHeaders = {
       'Authorization': `Bearer ${token}`,
       'accept-version': '1.0.0',
     } as const;
 
-    // eslint-disable-next-line no-console
-    console.log('[api/webflow/pages] Outbound request', {
-      method: 'GET',
-      url: requestUrl,
-      headers: {
-        ...requestHeaders,
-        Authorization: `Bearer ${token ? '****' + token.slice(-4) : '<unset>'}`,
-      },
-    });
+    // Fetch all pages with pagination
+    let allPages: any[] = [];
+    let offset = 0;
+    let hasMore = true;
+    const limit = 100; // Webflow API limit per request
 
-    const response = await fetch(requestUrl, {
-      headers: requestHeaders,
-      cache: 'no-store', // Disable caching for fresh data
-    });
+    console.log('[api/webflow/pages] Fetching all pages for site:', siteId);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[api/webflow/pages] Webflow API Error', { status: response.status, siteId, errorText });
-      return NextResponse.json(
-        {
-          error: 'Failed to fetch pages from Webflow',
-          details: errorText,
-          siteId,
-          request: { method: 'GET', url: requestUrl },
-        },
-        { status: response.status }
-      );
+    while (hasMore) {
+      const requestUrl = `https://api.webflow.com/v2/sites/${siteId}/pages?offset=${offset}&limit=${limit}`;
+      
+      console.log(`[api/webflow/pages] Fetching batch at offset ${offset}...`);
+
+      const response = await fetch(requestUrl, {
+        headers: requestHeaders,
+        cache: 'no-store', // Disable caching for fresh data
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[api/webflow/pages] Webflow API Error', { status: response.status, siteId, errorText });
+        return NextResponse.json(
+          {
+            error: 'Failed to fetch pages from Webflow',
+            details: errorText,
+            siteId,
+            request: { method: 'GET', url: requestUrl },
+          },
+          { status: response.status }
+        );
+      }
+
+      const data = await response.json();
+      const pages = data.pages || [];
+      
+      allPages = allPages.concat(pages);
+      
+      const total = data.pagination?.total || 0;
+      offset += pages.length;
+      
+      hasMore = pages.length > 0 && offset < total;
+      
+      console.log(`[api/webflow/pages] Fetched ${pages.length} pages (total so far: ${allPages.length}/${total})`);
+      
+      if (hasMore) {
+        console.log(`[api/webflow/pages] More pages available, fetching next batch...`);
+      }
     }
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    console.log(`[api/webflow/pages] ✓ Fetched all ${allPages.length} pages`);
+
+    // Return all pages with original pagination structure
+    return NextResponse.json({
+      pages: allPages,
+      pagination: {
+        limit: allPages.length,
+        offset: 0,
+        total: allPages.length,
+      }
+    });
   } catch (error) {
     console.error('[api/webflow/pages] Error fetching Webflow pages:', error);
     return NextResponse.json(
