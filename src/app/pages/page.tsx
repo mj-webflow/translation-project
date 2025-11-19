@@ -211,6 +211,7 @@ export default function WebflowPagesPage() {
             
             if (done) {
               console.log(`Stream ended for ${localeName}. Completed locales so far:`, completedLocales);
+              console.log(`Buffer remaining:`, buffer);
               // Process any remaining buffer
               if (buffer.trim()) {
                 console.log(`Processing remaining buffer for ${localeName}:`, buffer);
@@ -219,9 +220,24 @@ export default function WebflowPagesPage() {
                     const data = JSON.parse(buffer.slice(6));
                     console.log(`Final SSE message from buffer for ${localeName}:`, data);
                     if (data.success) {
-                      completedLocales.push(localeName);
-                      totalNodesTranslated += data.nodesTranslated || 0;
-                      console.log(`✓ Completed translation to ${localeName} (from buffer). Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
+                      // Check if this locale was already added
+                      if (!completedLocales.includes(localeName)) {
+                        completedLocales.push(localeName);
+                        totalNodesTranslated += data.nodesTranslated || 0;
+                        console.log(`✓ Completed translation to ${localeName} (from buffer). Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
+                        
+                        // Update progress state
+                        setTranslationProgress(prev => ({
+                          ...prev,
+                          [pageId]: {
+                            ...prev[pageId],
+                            completedLocales: [...completedLocales],
+                            currentStep: `✓ Completed ${localeName} (${completedLocales.length}/${selectedLocaleIds.length})`,
+                          }
+                        }));
+                      } else {
+                        console.log(`Locale ${localeName} already marked as completed, skipping duplicate`);
+                      }
                     }
                   } catch (e) {
                     console.warn('Failed to parse final buffer:', buffer);
@@ -263,21 +279,29 @@ export default function WebflowPagesPage() {
                   }
                   
                   if (data.success) {
-                    // Locale completed successfully
-                    completedLocales.push(localeName);
-                    totalNodesTranslated += data.nodesTranslated || 0;
-                    console.log(`✓ Completed translation to ${localeName}. Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
-                    console.log(`Completed locales array:`, completedLocales);
-                    
-                    // Update progress with completed locale
-                    setTranslationProgress(prev => ({
-                      ...prev,
-                      [pageId]: {
-                        ...prev[pageId],
-                        completedLocales: [...completedLocales],
-                        currentStep: `✓ Completed ${localeName} (${completedLocales.length}/${selectedLocaleIds.length})`,
-                      }
-                    }));
+                    // Locale completed successfully - check for duplicates
+                    if (!completedLocales.includes(localeName)) {
+                      completedLocales.push(localeName);
+                      totalNodesTranslated += data.nodesTranslated || 0;
+                      console.log(`✓ Completed translation to ${localeName}. Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
+                      console.log(`Completed locales array:`, completedLocales);
+                      
+                      // Update progress with completed locale
+                      setTranslationProgress(prev => {
+                        const updatedProgress = {
+                          ...prev,
+                          [pageId]: {
+                            ...prev[pageId],
+                            completedLocales: [...completedLocales],
+                            currentStep: `✓ Completed ${localeName} (${completedLocales.length}/${selectedLocaleIds.length})`,
+                          }
+                        };
+                        console.log(`Updated progress state for ${pageId}:`, updatedProgress[pageId]);
+                        return updatedProgress;
+                      });
+                    } else {
+                      console.log(`Locale ${localeName} already marked as completed, skipping duplicate`);
+                    }
                   }
                 } catch (e) {
                   console.warn('Failed to parse SSE message:', line);
@@ -303,16 +327,20 @@ export default function WebflowPagesPage() {
       console.log(`Final completed locales array:`, completedLocales);
       console.log(`Total nodes translated:`, totalNodesTranslated);
       
-      setTranslationProgress(prev => ({
-        ...prev,
-        [pageId]: {
-          ...prev[pageId],
-          status: 'complete',
-          completedLocales,
-          currentStep: `Completed! Translated to ${completedLocales.length}/${selectedLocaleIds.length} locale(s)`,
-          nodesCount: totalNodesTranslated,
-        }
-      }));
+      setTranslationProgress(prev => {
+        const finalProgress = {
+          ...prev,
+          [pageId]: {
+            ...prev[pageId],
+            status: 'complete',
+            completedLocales: [...completedLocales],
+            currentStep: `Translation complete! Translated to ${completedLocales.length}/${selectedLocaleIds.length} locale(s)`,
+            nodesCount: totalNodesTranslated,
+          }
+        };
+        console.log(`Final progress state for ${pageId}:`, finalProgress[pageId]);
+        return finalProgress;
+      });
 
       // Refresh pages list
       const storedSiteIdRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
