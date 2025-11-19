@@ -27,18 +27,22 @@ export default function WebflowPagesPage() {
   const [selectedLocaleIds, setSelectedLocaleIds] = useState<string[]>([]);
   const [userEmail, setUserEmail] = useState<string>('');
   
-  const supabase = createClient();
-  
   // Get user info
   useEffect(() => {
+    // Create client only when needed (client-side only)
+    const supabase = createClient();
+    
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user?.email) {
         setUserEmail(user.email);
       }
     });
-  }, [supabase.auth]);
+  }, []);
   
   const handleLogout = async () => {
+    // Create client only when needed (client-side only)
+    const supabase = createClient();
+    
     await supabase.auth.signOut();
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
     window.location.href = `${basePath}/login`;
