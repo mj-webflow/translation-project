@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { WebflowPage, WebflowPagesResponse } from '@/types/webflow';
+import { createClient } from '@/lib/supabase';
 
 interface TranslationProgress {
   pageId: string;
@@ -24,6 +25,24 @@ export default function WebflowPagesPage() {
   const [translationProgress, setTranslationProgress] = useState<Record<string, TranslationProgress>>({});
   const [locales, setLocales] = useState<{ primary: any | null; secondary: any[] }>({ primary: null, secondary: [] });
   const [selectedLocaleIds, setSelectedLocaleIds] = useState<string[]>([]);
+  const [userEmail, setUserEmail] = useState<string>('');
+  
+  const supabase = createClient();
+  
+  // Get user info
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) {
+        setUserEmail(user.email);
+      }
+    });
+  }, [supabase.auth]);
+  
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+    window.location.href = `${basePath}/login`;
+  };
 
   useEffect(() => {
     const fetchLocalesThenPages = async () => {
@@ -325,13 +344,29 @@ export default function WebflowPagesPage() {
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
-            Webflow Pages
-          </h1>
-          <p className="text-zinc-600 dark:text-zinc-400">
-            Browse and manage all pages from your Webflow site
-          </p>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
+              Webflow Pages
+            </h1>
+            <p className="text-zinc-600 dark:text-zinc-400">
+              Browse and manage all pages from your Webflow site
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            {userEmail && (
+              <div className="text-right">
+                <div className="text-sm text-zinc-600 dark:text-zinc-400">Signed in as</div>
+                <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{userEmail}</div>
+              </div>
+            )}
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 rounded-lg hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors text-sm font-medium"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
 
         {/* Locale Selection */}
