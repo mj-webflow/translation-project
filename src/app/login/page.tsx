@@ -14,28 +14,35 @@ export default function LoginPage() {
 
   // Initialize Supabase client at runtime
   useEffect(() => {
-    try {
-      setSupabase(createClient());
-    } catch (err) {
-      setError('Authentication service is not configured. Please contact your administrator.');
-      console.error('Failed to initialize Supabase:', err);
-    }
+    const initSupabase = async () => {
+      try {
+        const client = await createClient();
+        setSupabase(client);
+      } catch (err) {
+        setError('Authentication service is not configured. Please contact your administrator.');
+        console.error('Failed to initialize Supabase:', err);
+      }
+    };
+    
+    initSupabase();
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!supabase) {
-      setError('Authentication service is not available. Please refresh the page.');
-      return;
-    }
     
     setLoading(true);
     setError('');
     setMessage('');
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      // Get or create Supabase client
+      const client = supabase || await createClient();
+      if (!client) {
+        setError('Authentication service is not available. Please refresh the page.');
+        return;
+      }
+      
+      const { data, error } = await client.auth.signInWithPassword({
         email,
         password,
       });
@@ -53,7 +60,7 @@ export default function LoginPage() {
       if (data.user) {
         // Check if email ends with @webflow.com
         if (!data.user.email?.endsWith('@webflow.com')) {
-          await supabase.auth.signOut();
+          await client.auth.signOut();
           setError('Access restricted to @webflow.com email addresses only.');
           return;
         }
@@ -76,18 +83,20 @@ export default function LoginPage() {
       return;
     }
 
-    if (!supabase) {
-      setError('Authentication service is not available. Please refresh the page.');
-      return;
-    }
-
     setLoading(true);
     setError('');
     setMessage('');
 
     try {
+      // Get or create Supabase client
+      const client = supabase || await createClient();
+      if (!client) {
+        setError('Authentication service is not available. Please refresh the page.');
+        return;
+      }
+      
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await client.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}${basePath}/reset-password`,
       });
 

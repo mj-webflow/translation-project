@@ -32,7 +32,7 @@ export default function WebflowPagesPage() {
   useEffect(() => {
     const initSupabase = async () => {
       try {
-        const client = createClient();
+        const client = await createClient();
         setSupabase(client);
         
         const { data } = await client.auth.getUser();
@@ -48,8 +48,13 @@ export default function WebflowPagesPage() {
   }, []);
   
   const handleLogout = async () => {
-    if (supabase) {
-      await supabase.auth.signOut();
+    try {
+      const client = supabase || await createClient();
+      if (client) {
+        await client.auth.signOut();
+      }
+    } catch (err) {
+      console.error('Failed to sign out:', err);
     }
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
     window.location.href = `${basePath}/login`;

@@ -16,7 +16,7 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const initSupabase = async () => {
       try {
-        const client = createClient();
+        const client = await createClient();
         setSupabase(client);
         
         // Check if we have a valid session from the reset link
@@ -38,11 +38,6 @@ export default function ResetPasswordPage() {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!supabase) {
-      setError('Authentication service is not available. Please refresh the page.');
-      return;
-    }
-    
     setLoading(true);
     setError('');
     setMessage('');
@@ -60,7 +55,14 @@ export default function ResetPasswordPage() {
     }
 
     try {
-      const { error } = await supabase.auth.updateUser({
+      // Get or create Supabase client
+      const client = supabase || await createClient();
+      if (!client) {
+        setError('Authentication service is not available. Please refresh the page.');
+        return;
+      }
+      
+      const { error } = await client.auth.updateUser({
         password: password,
       });
 

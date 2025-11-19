@@ -8,9 +8,9 @@ export async function middleware(request: NextRequest) {
     },
   })
 
-  // Get environment variables at runtime
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // Get environment variables at runtime (server-side only)
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
     // If Supabase is not configured, allow access to all routes
