@@ -26,24 +26,31 @@ export default function WebflowPagesPage() {
   const [locales, setLocales] = useState<{ primary: any | null; secondary: any[] }>({ primary: null, secondary: [] });
   const [selectedLocaleIds, setSelectedLocaleIds] = useState<string[]>([]);
   const [userEmail, setUserEmail] = useState<string>('');
+  const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
   
-  // Get user info
+  // Initialize Supabase and get user info
   useEffect(() => {
-    // Create client only when needed (client-side only)
-    const supabase = createClient();
-    
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user?.email) {
-        setUserEmail(user.email);
+    const initSupabase = async () => {
+      try {
+        const client = createClient();
+        setSupabase(client);
+        
+        const { data } = await client.auth.getUser();
+        if (data.user?.email) {
+          setUserEmail(data.user.email);
+        }
+      } catch (err) {
+        console.error('Failed to initialize Supabase:', err);
       }
-    });
+    };
+    
+    initSupabase();
   }, []);
   
   const handleLogout = async () => {
-    // Create client only when needed (client-side only)
-    const supabase = createClient();
-    
-    await supabase.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
     window.location.href = `${basePath}/login`;
   };

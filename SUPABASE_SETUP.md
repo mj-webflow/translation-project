@@ -71,19 +71,16 @@ Update the **Confirm signup** template to mention it's for Webflow employees:
 <p><a href="{{ .ConfirmationURL }}">Confirm your email</a></p>
 ```
 
-## 5. Configure URL Configuration ⚠️ IMPORTANT
+## 5. Configure URL Configuration
 
 1. Go to **Authentication** → **URL Configuration**
-2. Set **Site URL**:
-   - For local dev: `http://localhost:3000`
-   - For production: `https://your-webflow-cloud-url.webflow.io/app`
-3. Add **Redirect URLs** (click "Add URL" for each):
-   - `http://localhost:3000/reset-password` (local dev)
-   - `http://localhost:3000/login` (local dev)
-   - `https://your-webflow-cloud-url.webflow.io/app/reset-password` (production)
-   - `https://your-webflow-cloud-url.webflow.io/app/login` (production)
-
-**⚠️ Critical:** Make sure the redirect URLs match exactly, including the `/app` prefix for production!
+2. Add your site URLs:
+   - **Site URL**: `http://localhost:3000` (for local dev)
+   - **Redirect URLs**: Add these:
+     - `http://localhost:3000/login`
+     - `http://localhost:3000/reset-password`
+     - `https://your-webflow-cloud-url.webflow.io/app/login` (for production)
+     - `https://your-webflow-cloud-url.webflow.io/app/reset-password` (for production)
 
 ## 6. Restrict to @webflow.com Emails (Database Policy)
 
@@ -119,22 +116,13 @@ if (!data.user.email?.endsWith('@webflow.com')) {
 
 ## 7. Invite Users
 
-### Method 1: Using Supabase Dashboard (Recommended)
+### Method 1: Using Supabase Dashboard
 
 1. Go to **Authentication** → **Users**
 2. Click **"Invite user"**
 3. Enter the user's **@webflow.com** email address
 4. Click **"Send invitation"**
 5. User will receive an email with a link to set their password
-
-**What the user sees:**
-1. Receives email: "You have been invited to join..."
-2. Clicks the link in the email
-3. Redirected to `/reset-password` page
-4. Sets their password
-5. Automatically logged in and redirected to `/setup`
-
-**⚠️ Important:** The invite link redirects to `/reset-password`, not `/login`. This is correct! The `/reset-password` page handles both password resets AND initial password setup for new users.
 
 ### Method 2: Using Supabase API (Programmatic)
 
@@ -260,116 +248,23 @@ inviteUser('jane.smith@webflow.com')
 
 ## Troubleshooting
 
-### "I invited a user but they can't log in"
-
-**Problem:** User receives invite email, clicks link, but gets redirected to login page without being able to set password.
-
-**Solution:**
-1. Check **Authentication** → **URL Configuration** in Supabase
-2. Make sure `/reset-password` is in the **Redirect URLs** list
-3. The invite link should redirect to `/reset-password`, NOT `/login`
-4. User should see "Set Your Password" page, not login page
-
-**Steps to verify:**
-1. Go to Supabase → **Authentication** → **URL Configuration**
-2. Verify these URLs are added:
-   - `http://localhost:3000/reset-password` (for local)
-   - `https://your-domain.com/app/reset-password` (for production)
-3. Re-send the invite if needed
-
-### "Invalid or expired link" on password setup
-
-**Causes:**
-- Invite link expired (links expire after 24 hours by default)
-- Wrong redirect URL configured in Supabase
-- User already used the link
-
-**Solution:**
-1. Go to **Authentication** → **Users** in Supabase
-2. Find the user and click **"Send magic link"** or **"Invite user"** again
-3. User will receive a new email with a fresh link
-4. Make sure they click the link within 24 hours
-
 ### "Invalid login credentials"
-
-**Causes:**
-- User hasn't set their password yet (invited but didn't complete setup)
-- Wrong password
-- Email not confirmed (if email confirmation is enabled)
-
-**Solution:**
-1. Check if user exists: **Authentication** → **Users** in Supabase
-2. Check user status:
-   - ✅ Green dot = active and confirmed
-   - ⚠️ Yellow/gray = invited but not confirmed
-3. If user is invited but not confirmed:
-   - Click on the user
-   - Click **"Send magic link"** to resend invite
-4. If password is wrong:
-   - User can click "Forgot password?" on login page
-   - They'll receive a password reset email
+- Make sure the user has confirmed their email
+- Check that the password is correct
+- Verify the user exists in Supabase dashboard
 
 ### "Access restricted to @webflow.com email addresses"
-
-**This is expected behavior!**
+- This is expected for non-Webflow emails
 - Only @webflow.com emails can access the app
-- This message appears when someone tries to log in with a non-Webflow email
-- If you need to add a non-Webflow email, you'll need to modify the code
 
 ### Email not sending
+- Check **Authentication** → **Email Templates**
+- Verify SMTP settings (Supabase uses their own by default)
+- Check spam folder
 
-**Check these:**
-1. **Spam folder** - Supabase emails often go to spam
-2. **Email templates** - Go to **Authentication** → **Email Templates**
-3. **SMTP settings** - Supabase uses their own SMTP by default (should work)
-4. **Rate limits** - Supabase has rate limits on emails (check project quotas)
-
-**To test email sending:**
-1. Go to **Authentication** → **Users**
-2. Click on a test user
-3. Click **"Send magic link"**
-4. Check if email arrives (check spam!)
-
-### Redirect not working after login
-
-**Problem:** After login, user stays on login page or gets error.
-
-**Solution:**
-1. Check browser console for errors (F12 → Console tab)
-2. Verify `NEXT_PUBLIC_BASE_PATH` is set correctly in `.env.local`
-3. For local dev, it should be empty or not set
-4. For Webflow Cloud, it should be `/app`
-5. Restart your dev server after changing env variables
-
-### "Session not found" or "User not authenticated"
-
-**Problem:** User logs in but immediately gets logged out.
-
-**Causes:**
-- Cookie settings issue
-- Redirect URL mismatch
-- Browser blocking third-party cookies
-
-**Solution:**
-1. Check **Authentication** → **URL Configuration**
-2. Make sure **Site URL** matches your app URL exactly
-3. Clear browser cookies and try again
-4. Try in incognito/private mode
-5. Check browser console for cookie errors
-
-### User can't access `/pages` after setup
-
-**Problem:** User enters Webflow credentials on `/setup` but gets redirected back to login.
-
-**Causes:**
-- Session expired
-- Middleware not recognizing user
-
-**Solution:**
-1. Check browser console for errors
-2. Try logging out and back in
-3. Clear localStorage: `localStorage.clear()` in console
-4. Verify middleware is running (check terminal logs)
+### Redirect not working
+- Verify redirect URLs in **Authentication** → **URL Configuration**
+- Make sure `NEXT_PUBLIC_BASE_PATH` is set correctly
 
 ## Need Help?
 

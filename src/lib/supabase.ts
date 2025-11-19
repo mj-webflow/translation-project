@@ -1,30 +1,29 @@
 import { createBrowserClient } from '@supabase/ssr'
 
+let clientInstance: ReturnType<typeof createBrowserClient> | null = null;
+
 export function createClient() {
-  // Try to get credentials from localStorage first (runtime config)
-  const supabaseUrl = typeof window !== 'undefined' 
-    ? localStorage.getItem('supabase_url') || process.env.NEXT_PUBLIC_SUPABASE_URL
-    : process.env.NEXT_PUBLIC_SUPABASE_URL;
-    
-  const supabaseKey = typeof window !== 'undefined'
-    ? localStorage.getItem('supabase_anon_key') || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Supabase credentials not configured. Please visit /auth-setup to configure.');
-  }
-
-  return createBrowserClient(supabaseUrl, supabaseKey)
-}
-
-export function hasSupabaseCredentials(): boolean {
+  // Only create client at runtime (not at build time)
   if (typeof window === 'undefined') {
-    return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+    throw new Error('createClient can only be called on the client side');
   }
+
+  // Return existing instance if available
+  if (clientInstance) {
+    return clientInstance;
+  }
+
+  // Get environment variables at runtime
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  }
+
+  // Create and cache the client instance
+  clientInstance = createBrowserClient(supabaseUrl, supabaseAnonKey);
   
-  const hasLocalStorage = !!(localStorage.getItem('supabase_url') && localStorage.getItem('supabase_anon_key'));
-  const hasEnvVars = !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-  
-  return hasLocalStorage || hasEnvVars;
+  return clientInstance;
 }
 

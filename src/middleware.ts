@@ -8,23 +8,20 @@ export async function middleware(request: NextRequest) {
     },
   })
 
-  // Check if Supabase credentials are configured
+  // Get environment variables at runtime
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!supabaseUrl || !supabaseKey) {
-    // No credentials configured - redirect to auth-setup
-    const pathname = request.nextUrl.pathname;
-    if (!pathname.startsWith('/auth-setup')) {
-      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
-      return NextResponse.redirect(new URL(`${basePath}/auth-setup`, request.url));
-    }
+  if (!supabaseUrl || !supabaseAnonKey) {
+    // If Supabase is not configured, allow access to all routes
+    // This allows the app to build without Supabase credentials
+    console.warn('Supabase credentials not configured. Authentication is disabled.');
     return response;
   }
 
   const supabase = createServerClient(
     supabaseUrl,
-    supabaseKey,
+    supabaseAnonKey,
     {
       cookies: {
         get(name: string) {
@@ -73,26 +70,13 @@ export async function middleware(request: NextRequest) {
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
   const pathname = request.nextUrl.pathname
 
-  // Only log actual page requests (not assets, DevTools, etc.)
-  if (!pathname.includes('.well-known') && !pathname.includes('_next') && !pathname.match(/\.(ico|svg|png|jpg|jpeg|gif|webp)$/)) {
-    console.log('Middleware:', { pathname, user: !!user, basePath })
-  }
-
-  // Redirect unauthenticated users from root to login
-  if (!user && pathname === '/') {
-    console.log('Redirecting to login (not authenticated, on root)')
-    return NextResponse.redirect(new URL(`${basePath}/login`, request.url))
-  }
-
   // Protect /setup, /pages and /api/webflow routes
   if (!user && (pathname.startsWith('/setup') || pathname.startsWith('/pages') || pathname.startsWith('/api/webflow'))) {
-    console.log('Redirecting to login (not authenticated, protected route)')
     return NextResponse.redirect(new URL(`${basePath}/login`, request.url))
   }
 
   // Redirect to /setup if already logged in and trying to access root or login
   if (user && (pathname === '/' || pathname === basePath || pathname === `${basePath}/` || pathname.startsWith('/login'))) {
-    console.log('Redirecting to setup (authenticated user on root/login)')
     return NextResponse.redirect(new URL(`${basePath}/setup`, request.url))
   }
 

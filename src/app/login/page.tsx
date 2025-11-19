@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { createClient, hasSupabaseCredentials } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase';
 import Image from "next/image";
 
 export default function LoginPage() {
@@ -10,25 +10,31 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
 
+  // Initialize Supabase client at runtime
   useEffect(() => {
-    // Check if Supabase credentials are configured
-    if (!hasSupabaseCredentials()) {
-      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
-      window.location.href = `${basePath}/auth-setup`;
+    try {
+      setSupabase(createClient());
+    } catch (err) {
+      setError('Authentication service is not configured. Please contact your administrator.');
+      console.error('Failed to initialize Supabase:', err);
     }
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!supabase) {
+      setError('Authentication service is not available. Please refresh the page.');
+      return;
+    }
+    
     setLoading(true);
     setError('');
     setMessage('');
 
     try {
-      // Create client only when needed (client-side only)
-      const supabase = createClient();
-      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -70,14 +76,16 @@ export default function LoginPage() {
       return;
     }
 
+    if (!supabase) {
+      setError('Authentication service is not available. Please refresh the page.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setMessage('');
 
     try {
-      // Create client only when needed (client-side only)
-      const supabase = createClient();
-      
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}${basePath}/reset-password`,
