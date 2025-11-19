@@ -95,9 +95,16 @@ export default function LoginPage() {
         return;
       }
       
-      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+      // Construct the redirect URL
+      // Use the current page's full URL path to derive the correct base
+      const currentPath = window.location.pathname;
+      const basePath = currentPath.replace(/\/login.*$/, ''); // Remove /login and everything after
+      const redirectUrl = `${window.location.origin}${basePath}/reset-password`;
+      
+      console.log('Password reset redirect URL:', redirectUrl); // Debug log
+      
       const { error } = await client.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}${basePath}/reset-password`,
+        redirectTo: redirectUrl,
       });
 
       if (error) {
