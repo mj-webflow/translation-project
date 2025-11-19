@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase';
 import Image from "next/image";
 
@@ -13,6 +13,15 @@ export default function LoginPage() {
 
   const supabase = createClient();
 
+  // Clear Webflow credentials when login page loads
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('webflow_site_id');
+      localStorage.removeItem('webflow_api_token');
+      localStorage.removeItem('webflow_locales');
+    }
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -20,6 +29,13 @@ export default function LoginPage() {
     setMessage('');
 
     try {
+      // First, check if email is @webflow.com BEFORE attempting authentication
+      if (!email.endsWith('@webflow.com')) {
+        setError('Access restricted to @webflow.com email addresses only.');
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -29,6 +45,8 @@ export default function LoginPage() {
         // Check if it's an email not confirmed error
         if (error.message.includes('Email not confirmed')) {
           setError('Please check your email and confirm your account before logging in.');
+        } else if (error.message.includes('Invalid login credentials')) {
+          setError('Invalid email or password. If you haven\'t set up your account yet, please check your email for an invitation link.');
         } else {
           setError(error.message);
         }

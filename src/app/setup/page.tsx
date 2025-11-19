@@ -28,7 +28,17 @@ export default function SetupPage() {
   }, [supabase.auth]);
 
   const handleLogout = async () => {
+    // Clear Webflow credentials from localStorage
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('webflow_site_id');
+      localStorage.removeItem('webflow_api_token');
+      localStorage.removeItem('webflow_locales');
+    }
+    
+    // Sign out from Supabase
     await supabase.auth.signOut();
+    
+    // Redirect to login
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
     window.location.href = `${basePath}/login`;
   };
