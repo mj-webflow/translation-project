@@ -7,10 +7,11 @@ export default function SetupPage() {
   const [siteId, setSiteId] = React.useState('');
   const [apiKey, setApiKey] = React.useState('');
   const [userEmail, setUserEmail] = React.useState('');
-  
-  const supabase = createClient();
 
   React.useEffect(() => {
+    // Create client only when needed (client-side only)
+    const supabase = createClient();
+    
     // Get user info
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user?.email) {
@@ -25,9 +26,12 @@ export default function SetupPage() {
       if (storedSiteId) setSiteId(storedSiteId);
       if (storedToken) setApiKey(storedToken);
     }
-  }, [supabase.auth]);
+  }, []);
 
   const handleLogout = async () => {
+    // Create client only when needed (client-side only)
+    const supabase = createClient();
+    
     await supabase.auth.signOut();
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
     window.location.href = `${basePath}/login`;
