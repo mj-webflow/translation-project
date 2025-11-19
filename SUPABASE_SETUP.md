@@ -191,8 +191,8 @@ inviteUser('jane.smith@webflow.com')
 ## 9. Deploy to Webflow Cloud
 
 1. Make sure your environment variables are set in Webflow Cloud:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_URL` (no NEXT_PUBLIC_ prefix - read at runtime)
+   - `SUPABASE_ANON_KEY` (no NEXT_PUBLIC_ prefix - read at runtime)
    - `NEXT_PUBLIC_BASE_PATH=/app`
 
 2. Update Supabase redirect URLs to include your production URL

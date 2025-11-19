@@ -2,6 +2,15 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  // TEMP: Auth disabled - allow all routes
+  // TODO: Re-enable auth by uncommenting the code below
+  return NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
+
+  /* AUTH CODE - TEMPORARILY DISABLED
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -81,6 +90,7 @@ export async function middleware(request: NextRequest) {
   }
 
   return response
+  */
 }
 
 export const config = {

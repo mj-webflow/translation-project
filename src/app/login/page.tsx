@@ -89,11 +89,13 @@ export default function LoginPage() {
 
     try {
       // Get or create Supabase client
+      console.log('Getting Supabase client for password reset...');
       const client = supabase || await createClient();
       if (!client) {
         setError('Authentication service is not available. Please refresh the page.');
         return;
       }
+      console.log('Supabase client ready:', !!client);
       
       // Construct the redirect URL
       // Use the current page's full URL path to derive the correct base
@@ -101,13 +103,17 @@ export default function LoginPage() {
       const basePath = currentPath.replace(/\/login.*$/, ''); // Remove /login and everything after
       const redirectUrl = `${window.location.origin}${basePath}/reset-password`;
       
-      console.log('Password reset redirect URL:', redirectUrl); // Debug log
+      console.log('Password reset redirect URL:', redirectUrl);
+      console.log('Calling resetPasswordForEmail with email:', email);
       
-      const { error } = await client.auth.resetPasswordForEmail(email, {
+      const { error, data } = await client.auth.resetPasswordForEmail(email, {
         redirectTo: redirectUrl,
       });
+      
+      console.log('resetPasswordForEmail response:', { error, data });
 
       if (error) {
+        console.error('Password reset error details:', error);
         setError(error.message);
       } else {
         setMessage('Password reset email sent! Check your inbox.');
