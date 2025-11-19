@@ -75,7 +75,7 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
         console.log(`Fetched ${domNodes.length} nodes (offset: ${offset - domNodes.length}, total: ${total}, fetched so far: ${allNodes.length})`);
         
         if (hasMore) {
-            console.log(`  → More nodes available, fetching next batch...`);
+            console.log(`More nodes available, fetching next batch...`);
         }
     }
 
@@ -253,7 +253,7 @@ async function fetchComponentProperties(
         props = json.componentMetadata.properties;
     }
     
-    console.log(`      Found ${props.length} raw properties in response`);
+    console.log(`Found ${props.length} raw properties in response`);
     
     const result = props.map((p: any) => {
         // Try multiple possible field names for propertyId
@@ -276,11 +276,11 @@ async function fetchComponentProperties(
         }
             
         const preview = typeof text === 'string' ? text.substring(0, 50) : 'undefined';
-        console.log(`      Property: id=${propertyId}, text=${preview}...`);
+        console.log(`Property: id=${propertyId}, text=${preview}...`);
         return { propertyId, text };
     }).filter((p: any) => !!p.propertyId);
     
-    console.log(`      Returning ${result.length} properties with IDs`);
+    console.log(` Returning ${result.length} properties with IDs`);
     return result;
 }
 
@@ -419,7 +419,7 @@ async function updatePageContent(
             const batchNum = Math.floor(i / NODE_BATCH_SIZE) + 1;
             const totalBatches = Math.ceil(nodes.length / NODE_BATCH_SIZE);
             
-            console.log(`    Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes)...`);
+            console.log(`Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes)...`);
             await updatePageContentSingle(pageId, localeId, batch, token, branchId);
             
             // Small delay between batches
@@ -520,36 +520,77 @@ async function updatePageContentSingle(
     }
 }
 
+// Helper to send keepalive messages
+function createKeepAliveStream(encoder: TextEncoder) {
+    let keepAliveInterval: NodeJS.Timeout | null = null;
+    
+    return {
+        start(controller: ReadableStreamDefaultController) {
+            // Send a comment every 10 seconds to keep connection alive
+            keepAliveInterval = setInterval(() => {
+                try {
+                    controller.enqueue(encoder.encode(': keepalive\n\n'));
+                } catch (e) {
+                    // Stream might be closed
+                    if (keepAliveInterval) clearInterval(keepAliveInterval);
+                }
+            }, 10000);
+        },
+        stop() {
+            if (keepAliveInterval) {
+                clearInterval(keepAliveInterval);
+                keepAliveInterval = null;
+            }
+        }
+    };
+}
+
 export async function POST(request: NextRequest) {
-    try {
-        const overrideToken = request.headers.get('x-webflow-token') || '';
-        const { searchParams } = new URL(request.url);
-        const siteId = searchParams.get('siteId') || WEBFLOW_SITE_ID;
-        const branchId = searchParams.get('branchId');
-        const token = overrideToken || WEBFLOW_API_TOKEN || '';
+    const encoder = new TextEncoder();
+    
+    // Create a streaming response
+    const stream = new ReadableStream({
+        async start(controller) {
+            const keepAlive = createKeepAliveStream(encoder);
+            keepAlive.start(controller);
+            
+            try {
+                const overrideToken = request.headers.get('x-webflow-token') || '';
+                const { searchParams } = new URL(request.url);
+                const siteId = searchParams.get('siteId') || WEBFLOW_SITE_ID;
+                const branchId = searchParams.get('branchId');
+                const token = overrideToken || WEBFLOW_API_TOKEN || '';
 
-        const { pageId, targetLocaleIds } = await request.json();
+                const body = await request.json();
+                const { pageId, targetLocaleId } = body;
 
-		if (!pageId) {
-			return NextResponse.json(
-				{ error: 'Page ID is required' },
-				{ status: 400 }
-			);
-		}
+                if (!pageId) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Page ID is required' })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
 
-        if (!token) {
-            return NextResponse.json(
-                { error: 'Webflow API token not configured. Provide x-webflow-token header or set WEBFLOW_API_TOKEN.' },
-                { status: 500 }
-            );
-        }
+                if (!targetLocaleId) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Target locale ID is required' })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
 
-        if (!siteId) {
-            return NextResponse.json(
-                { error: 'Missing siteId. Provide ?siteId=... or set WEBFLOW_SITE_ID.' },
-                { status: 400 }
-            );
-        }
+                if (!token) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Webflow API token not configured' })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
+
+                if (!siteId) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Missing siteId' })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
 
 		console.log(`Starting translation for page: ${pageId}`);
 
@@ -599,38 +640,25 @@ export async function POST(request: NextRequest) {
 			console.log(`  ${idx + 1}. ${preview}...`);
 		});
 
-		const completedLocales: string[] = [];
+                // Find the target locale
+                const locale = (locales.secondary || []).find((l: any) => l.id === targetLocaleId);
+                if (!locale) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        error: `Locale ${targetLocaleId} not found` 
+                    })}\n\n`));
+                    controller.close();
+                    keepAlive.stop();
+                    return;
+                }
 
-        // Determine target locales: either selected ones or all secondary if explicitly allowed
-        const targetLocales = Array.isArray(targetLocaleIds) && targetLocaleIds.length > 0
-            ? (locales.secondary || []).filter((l: any) => targetLocaleIds.includes(l.id))
-            : [];
+                // Send progress update
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    status: 'translating', 
+                    message: `Translating ${textNodes.length} text nodes to ${locale.displayName}...`,
+                    totalNodes: textNodes.length
+                })}\n\n`));
 
-        if (!targetLocales || targetLocales.length === 0) {
-            return NextResponse.json(
-                { error: 'No target locales selected. Provide targetLocaleIds (secondary locales).' },
-                { status: 400 }
-            );
-        }
-
-        // Helper to batch process locales (3 at a time to avoid rate limits)
-        const BATCH_SIZE = 3;
-        const batchLocales = (arr: any[], size: number): any[][] => {
-            const batches = [];
-            for (let i = 0; i < arr.length; i += size) {
-                batches.push(arr.slice(i, i + size));
-            }
-            return batches;
-        };
-
-        const localeBatches = batchLocales(targetLocales, BATCH_SIZE);
-
-        // Step 2 & 3: Translate and update for each selected secondary locale (batched 3 at a time)
-        let localeProgress = 0;
-        for (const batch of localeBatches) {
-            await Promise.all(batch.map(async (locale: any) => {
-                localeProgress++;
-                console.log(`\n[${localeProgress}/${targetLocales.length}] Processing locale: ${locale.displayName} (${locale.tag})`);
+                console.log(`\nProcessing locale: ${locale.displayName} (${locale.tag})`);
 
                 const sources = textNodes.map((node) => (
                     typeof node.html === 'string' && node.html.length > 0 ? node.html : (node.text as string)
@@ -638,13 +666,25 @@ export async function POST(request: NextRequest) {
 
                 let translations: string[] = [];
                 try {
+                    // Send progress update before translation
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'translating', 
+                        message: `Starting translation of ${sources.length} text nodes...`,
+                    })}\n\n`));
+                    
                     translations = await translateBatch(sources, {
                         targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                         sourceLanguage: 'en',
                         context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
                     });
+                    
+                    // Send progress update after translation
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'translating', 
+                        message: `Completed translating text nodes, preparing updates...`,
+                    })}\n\n`));
                 } catch (error) {
-                    console.error(`❌ Failed to translate text nodes for ${locale.displayName}:`, error);
+                    console.error(`Failed to translate text nodes for ${locale.displayName}:`, error);
                     console.log('Failed sources:', sources.map((s, i) => `[${i}] ${s.substring(0, 100)}...`));
                     // Use original sources as fallback
                     translations = sources;
@@ -683,6 +723,12 @@ export async function POST(request: NextRequest) {
                 console.log(`Found ${componentNodes.length} component instance(s) with property overrides for ${locale.displayName}`);
                 let componentUpdateNodes: UpdateNode[] = [];
                 if (componentNodes.length > 0) {
+                    // Send progress update for components
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'translating', 
+                        message: `Processing ${componentNodes.length} component instances...`,
+                    })}\n\n`));
+                    
                     const overrideItems: Array<{ nodeId: string; propertyId: string; source: string }> = [];
                     for (const cn of componentNodes) {
                         for (const po of cn.propertyOverrides || []) {
@@ -711,7 +757,7 @@ export async function POST(request: NextRequest) {
 
                             componentUpdateNodes = Array.from(group.entries()).map(([nodeId, propertyOverrides]) => ({ nodeId, propertyOverrides }));
                         } catch (error) {
-                            console.error(`❌ Failed to translate component property overrides for ${locale.displayName}:`, error);
+                            console.error(`Failed to translate component property overrides for ${locale.displayName}:`, error);
                             console.log('Failed overrides:', overrideItems.map(i => `${i.nodeId}/${i.propertyId}: ${i.source.substring(0, 100)}...`));
                         }
                     }
@@ -721,10 +767,23 @@ export async function POST(request: NextRequest) {
             // Send page-level updates first (text nodes and property overrides)
             if (allUpdates.length > 0) {
                 console.log(`Updating ${allUpdates.length} nodes for ${locale.displayName}...`);
+                
+                // Send progress update before updating
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    status: 'updating', 
+                    message: `Updating ${allUpdates.length} nodes in Webflow...`,
+                })}\n\n`));
+                
                 try {
                     await updatePageContent(pageId, locale.id, allUpdates, token, branchId);
+                    
+                    // Send progress update after updating
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'updating', 
+                        message: `Updated page content, processing components...`,
+                    })}\n\n`));
                 } catch (error) {
-                    console.error(`❌ Failed to update page content for ${locale.displayName}:`, error);
+                    console.error(`Failed to update page content for ${locale.displayName}:`, error);
                     console.log('Failed updates:', allUpdates.map(u => {
                         const preview = 'text' in u ? (u.text || '').substring(0, 100) : 
                                        'propertyOverrides' in u ? `${u.propertyOverrides?.length || 0} overrides` : 'unknown';
@@ -741,7 +800,7 @@ export async function POST(request: NextRequest) {
             pageContent.nodes.filter(n => n.type === 'component-instance').forEach(comp => {
                 const hasOverrides = comp.propertyOverrides && comp.propertyOverrides.length > 0;
                 const hasComponentId = typeof comp.componentId === 'string';
-                console.log(`  Component ${comp.componentId}: hasComponentId=${hasComponentId}, hasOverrides=${hasOverrides}, overrideLength=${comp.propertyOverrides?.length || 0}, willTranslate=${!hasOverrides && hasComponentId}`);
+                console.log(`Component ${comp.componentId}: hasComponentId=${hasComponentId}, hasOverrides=${hasOverrides}, overrideLength=${comp.propertyOverrides?.length || 0}, willTranslate=${!hasOverrides && hasComponentId}`);
             });
             
             const topLevelComponentIds = Array.from(new Set(
@@ -775,14 +834,30 @@ export async function POST(request: NextRequest) {
             console.log(`Found ${allComponentIds.size} component(s) to translate (including nested) for ${locale.displayName}`);
             console.log(`All component IDs to translate:`, Array.from(allComponentIds));
 
+            // Send progress update for component processing
+            if (allComponentIds.size > 0) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    status: 'translating', 
+                    message: `Processing ${allComponentIds.size} component definition(s)...`,
+                })}\n\n`));
+            }
+
+            let processedComponents = 0;
             for (const componentId of allComponentIds) {
-                console.log(`  Processing component ${componentId} for ${locale.displayName}...`);
+                processedComponents++;
+                console.log(`  Processing component ${componentId} for ${locale.displayName}... (${processedComponents}/${allComponentIds.size})`);
+                
+                // Send progress update for each component
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    status: 'translating', 
+                    message: `Processing component ${processedComponents}/${allComponentIds.size}...`,
+                })}\n\n`));
                 
                 // Try to fetch and translate component properties first
                 const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
-                console.log(`    Fetched ${properties.length} properties for component ${componentId}`);
+                console.log(`Fetched ${properties.length} properties for component ${componentId}`);
                 const translatableProps = properties.filter(p => typeof p.text === 'string' && p.text.trim().length > 0);
-                console.log(`    ${translatableProps.length} properties have translatable text`);
+                console.log(` ${translatableProps.length} properties have translatable text`);
                 
                 if (translatableProps.length > 0) {
                     try {
@@ -799,25 +874,25 @@ export async function POST(request: NextRequest) {
                             text: compTranslations[idx] ?? p.text ?? '',
                         }));
 
-                        console.log(`    Updating ${propertiesPayload.length} properties for component ${componentId} in locale ${locale.displayName}`);
+                        console.log(`Updating ${propertiesPayload.length} properties for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
-                        console.log(`    ✓ Component ${componentId} properties updated successfully`);
+                        console.log(`Component ${componentId} properties updated successfully`);
                     } catch (error) {
-                        console.error(`    ❌ Failed to translate/update component ${componentId} properties for ${locale.displayName}:`, error);
-                        console.log(`    Failed properties:`, translatableProps.map(p => `${p.propertyId}: ${(p.text || '').substring(0, 100)}...`));
+                        console.error(`Failed to translate/update component ${componentId} properties for ${locale.displayName}:`, error);
+                        console.log(`Failed properties:`, translatableProps.map(p => `${p.propertyId}: ${(p.text || '').substring(0, 100)}...`));
                     }
                 } else {
                     // If no properties, try to translate DOM text nodes
-                    console.log(`    No properties found, checking DOM text nodes for component ${componentId}...`);
+                    console.log(`No properties found, checking DOM text nodes for component ${componentId}...`);
                     const comp = await fetchComponentContent(siteId, componentId, token, branchId);
                     const compTextNodes = comp.nodes.filter(n => n.type === 'text' && (
                         (typeof n.html === 'string' && n.html.trim().length > 0) ||
                         (typeof n.text === 'string' && n.text.trim().length > 0)
                     ));
-                    console.log(`    Found ${compTextNodes.length} text nodes in component ${componentId} DOM`);
+                    console.log(`Found ${compTextNodes.length} text nodes in component ${componentId} DOM`);
                     
                     if (compTextNodes.length === 0) {
-                        console.log(`    ⚠ Component ${componentId} has no properties and no text nodes to translate`);
+                        console.log(`Component ${componentId} has no properties and no text nodes to translate`);
                         continue;
                     }
 
@@ -852,39 +927,49 @@ export async function POST(request: NextRequest) {
                             text: ensureWrapped(compTranslations[idx] ?? compSources[idx] ?? '', getRootTag(n.html)),
                         }));
 
-                        console.log(`    Updating ${compUpdateNodes.length} DOM text nodes for component ${componentId} in locale ${locale.displayName}`);
+                        console.log(`Updating ${compUpdateNodes.length} DOM text nodes for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
-                        console.log(`    ✓ Component ${componentId} DOM text nodes updated successfully`);
+                        console.log(`Component ${componentId} DOM text nodes updated successfully`);
                     } catch (error) {
-                        console.error(`    ❌ Failed to translate/update component ${componentId} DOM text nodes for ${locale.displayName}:`, error);
-                        console.log(`    Failed text nodes:`, compTextNodes.map(n => `${n.nodeId}: ${((n.html || n.text) || '').substring(0, 100)}...`));
+                        console.error(`Failed to translate/update component ${componentId} DOM text nodes for ${locale.displayName}:`, error);
+                        console.log(`Failed text nodes:`, compTextNodes.map(n => `${n.nodeId}: ${((n.html || n.text) || '').substring(0, 100)}...`));
                     }
                 }
             }
 
-            completedLocales.push(locale.displayName);
-        }));
+                console.log(`Translation complete for page ${pageId} to locale ${locale.displayName}.`);
+
+                // Send final success message
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    success: true,
+                    pageId,
+                    localeId: locale.id,
+                    localeName: locale.displayName,
+                    nodesTranslated: textNodes.length,
+                })}\n\n`));
+                
+                controller.close();
+                keepAlive.stop();
+
+            } catch (error) {
+                console.error('Translation error:', error);
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    error: 'Translation failed',
+                    details: error instanceof Error ? error.message : 'Unknown error',
+                })}\n\n`));
+                controller.close();
+                keepAlive.stop();
+            }
         }
+    });
 
-		console.log(`Translation complete for page ${pageId}. Updated ${completedLocales.length} locales.`);
-
-		return NextResponse.json({
-			success: true,
-			pageId,
-			completedLocales,
-			nodesTranslated: textNodes.length,
-		});
-
-	} catch (error) {
-		console.error('Translation error:', error);
-		return NextResponse.json(
-			{
-				error: 'Translation failed',
-				details: error instanceof Error ? error.message : 'Unknown error',
-			},
-			{ status: 500 }
-		);
-	}
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+        },
+    });
 }
 
 // Configure for long-running translations

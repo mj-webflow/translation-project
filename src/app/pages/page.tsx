@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { WebflowPage, WebflowPagesResponse } from '@/types/webflow';
+import { createClient } from '@/lib/supabase';
 
 interface TranslationProgress {
   pageId: string;
@@ -24,6 +25,40 @@ export default function WebflowPagesPage() {
   const [translationProgress, setTranslationProgress] = useState<Record<string, TranslationProgress>>({});
   const [locales, setLocales] = useState<{ primary: any | null; secondary: any[] }>({ primary: null, secondary: [] });
   const [selectedLocaleIds, setSelectedLocaleIds] = useState<string[]>([]);
+  const [userEmail, setUserEmail] = useState<string>('');
+  const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
+  
+  // Initialize Supabase and get user info
+  useEffect(() => {
+    const initSupabase = async () => {
+      try {
+        const client = await createClient();
+        setSupabase(client);
+        
+        const { data } = await client.auth.getUser();
+        if (data.user?.email) {
+          setUserEmail(data.user.email);
+        }
+      } catch (err) {
+        console.error('Failed to initialize Supabase:', err);
+      }
+    };
+    
+    initSupabase();
+  }, []);
+  
+  const handleLogout = async () => {
+    try {
+      const client = supabase || await createClient();
+      if (client) {
+        await client.auth.signOut();
+      }
+    } catch (err) {
+      console.error('Failed to sign out:', err);
+    }
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+    window.location.href = `${basePath}/login`;
+  };
 
   useEffect(() => {
     const fetchLocalesThenPages = async () => {
@@ -118,50 +153,151 @@ export default function WebflowPagesPage() {
     }));
 
     try {
-      // Step 1: Fetch page content
-      setTranslationProgress(prev => ({
-        ...prev,
-        [pageId]: { ...prev[pageId], status: 'fetching', currentStep: 'Fetching page content...' }
-      }));
-
       const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
       const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
       const branchId = page.branchId ? `&branchId=${encodeURIComponent(page.branchId)}` : '';
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
       
-      // Update status to translating
-      setTranslationProgress(prev => ({
-        ...prev,
-        [pageId]: { 
-          ...prev[pageId], 
-          status: 'translating', 
-          currentStep: `Translating to ${selectedLocaleNames.join(', ')}...` 
-        }
-      }));
-      
-      const response = await fetch(`${basePath}/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        ...(storedToken ? { headers: { 'Content-Type': 'application/json', 'x-webflow-token': storedToken } } : {}),
-        body: JSON.stringify({ pageId, targetLocaleIds: selectedLocaleIds })
-      });
+      const completedLocales: string[] = [];
+      let totalNodesTranslated = 0;
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Translation failed');
+      // Translate one locale at a time
+      for (let i = 0; i < selectedLocaleIds.length; i++) {
+        const localeId = selectedLocaleIds[i];
+        const localeName = selectedLocaleNames[i];
+        
+        setTranslationProgress(prev => ({
+          ...prev,
+          [pageId]: { 
+            ...prev[pageId], 
+            status: 'translating', 
+            currentStep: `Translating to ${localeName}... (${i + 1}/${selectedLocaleIds.length})`,
+            completedLocales: [...completedLocales]
+          }
+        }));
+
+        try {
+          const response = await fetch(`${basePath}/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            ...(storedToken ? { headers: { 'Content-Type': 'application/json', 'x-webflow-token': storedToken } } : {}),
+            body: JSON.stringify({ pageId, targetLocaleId: localeId })
+          });
+
+          if (!response.ok || !response.body) {
+            throw new Error(`Translation request failed for ${localeName}`);
+          }
+
+          // Read the streaming response
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              console.log(`Stream ended for ${localeName}. Completed locales so far:`, completedLocales);
+              // Process any remaining buffer
+              if (buffer.trim()) {
+                console.log(`Processing remaining buffer for ${localeName}:`, buffer);
+                if (buffer.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(buffer.slice(6));
+                    console.log(`Final SSE message from buffer for ${localeName}:`, data);
+                    if (data.success) {
+                      completedLocales.push(localeName);
+                      totalNodesTranslated += data.nodesTranslated || 0;
+                      console.log(`✓ Completed translation to ${localeName} (from buffer). Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
+                    }
+                  } catch (e) {
+                    console.warn('Failed to parse final buffer:', buffer);
+                  }
+                }
+              }
+              break;
+            }
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+              if (line.trim() === '' || line.startsWith(':')) {
+                // Skip empty lines and keepalive comments
+                continue;
+              }
+              
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  console.log(`SSE message for ${localeName}:`, data);
+                  
+                  if (data.error) {
+                    throw new Error(data.error);
+                  }
+                  
+                  if (data.status) {
+                    // Update progress with status messages
+                    console.log(`Updating progress for ${localeName}:`, data.message || data.status);
+                    setTranslationProgress(prev => ({
+                      ...prev,
+                      [pageId]: {
+                        ...prev[pageId],
+                        currentStep: `${localeName}: ${data.message || data.status}`,
+                      }
+                    }));
+                  }
+                  
+                  if (data.success) {
+                    // Locale completed successfully
+                    completedLocales.push(localeName);
+                    totalNodesTranslated += data.nodesTranslated || 0;
+                    console.log(`✓ Completed translation to ${localeName}. Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
+                    console.log(`Completed locales array:`, completedLocales);
+                    
+                    // Update progress with completed locale
+                    setTranslationProgress(prev => ({
+                      ...prev,
+                      [pageId]: {
+                        ...prev[pageId],
+                        completedLocales: [...completedLocales],
+                        currentStep: `✓ Completed ${localeName} (${completedLocales.length}/${selectedLocaleIds.length})`,
+                      }
+                    }));
+                  }
+                } catch (e) {
+                  console.warn('Failed to parse SSE message:', line);
+                }
+              }
+            }
+          }
+        } catch (localeError) {
+          console.error(`Failed to translate to ${localeName}:`, localeError);
+          // Continue with next locale instead of failing completely
+          setTranslationProgress(prev => ({
+            ...prev,
+            [pageId]: {
+              ...prev[pageId],
+              currentStep: `Failed to translate to ${localeName}, continuing...`,
+            }
+          }));
+        }
       }
 
-      const result = await response.json();
-
-      // Update progress with completed translation
+      // All locales processed
+      console.log(`🎉 All locales processed. Final completed count: ${completedLocales.length}/${selectedLocaleIds.length}`);
+      console.log(`Final completed locales array:`, completedLocales);
+      console.log(`Total nodes translated:`, totalNodesTranslated);
+      
       setTranslationProgress(prev => ({
         ...prev,
         [pageId]: {
           ...prev[pageId],
           status: 'complete',
-          completedLocales: result.completedLocales || [],
-          currentStep: `Completed! Translated ${result.nodesTranslated || 0} nodes to ${result.completedLocales?.length || 0} locale(s)`,
-          nodesCount: result.nodesTranslated,
+          completedLocales,
+          currentStep: `Completed! Translated to ${completedLocales.length}/${selectedLocaleIds.length} locale(s)`,
+          nodesCount: totalNodesTranslated,
         }
       }));
 
@@ -224,13 +360,29 @@ export default function WebflowPagesPage() {
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
-            Webflow Pages
-          </h1>
-          <p className="text-zinc-600 dark:text-zinc-400">
-            Browse and manage all pages from your Webflow site
-          </p>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
+              Webflow Pages
+            </h1>
+            <p className="text-zinc-600 dark:text-zinc-400">
+              Browse and manage all pages from your Webflow site
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            {userEmail && (
+              <div className="text-right">
+                <div className="text-sm text-zinc-600 dark:text-zinc-400">Signed in as</div>
+                <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{userEmail}</div>
+              </div>
+            )}
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 rounded-lg hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors text-sm font-medium"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
 
         {/* Locale Selection */}
@@ -465,7 +617,7 @@ export default function WebflowPagesPage() {
                               )}
                               {progress.totalLocales && (
                                 <div className="text-xs text-zinc-500 dark:text-zinc-500 ml-6">
-                                  Processing {progress.totalLocales} locale(s)
+                                  {progress.completedLocales?.length || 0}/{progress.totalLocales} locale(s) completed
                                 </div>
                               )}
                             </div>
