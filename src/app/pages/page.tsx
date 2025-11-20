@@ -141,7 +141,7 @@ export default function WebflowPagesPage() {
         ...prev,
         [pageId]: {
           pageId,
-          status: 'error',
+          status: 'error' as const,
           error: 'Select at least one secondary locale before translating.',
           completedLocales: [],
         }
@@ -158,7 +158,7 @@ export default function WebflowPagesPage() {
       ...prev,
       [pageId]: {
         pageId,
-        status: 'fetching',
+        status: 'fetching' as const,
         completedLocales: [],
         totalLocales: selectedLocaleIds.length,
         currentStep: 'Fetching page content...',
@@ -183,7 +183,7 @@ export default function WebflowPagesPage() {
           ...prev,
           [pageId]: { 
             ...prev[pageId], 
-            status: 'translating', 
+            status: 'translating' as const, 
             currentStep: `Translating to ${localeName}... (${i + 1}/${selectedLocaleIds.length})`,
             completedLocales: [...completedLocales]
           }
@@ -332,7 +332,7 @@ export default function WebflowPagesPage() {
           ...prev,
           [pageId]: {
             ...prev[pageId],
-            status: 'complete',
+            status: 'complete' as const,
             completedLocales: [...completedLocales],
             currentStep: `Translation complete! Translated to ${completedLocales.length}/${selectedLocaleIds.length} locale(s)`,
             nodesCount: totalNodesTranslated,
@@ -359,7 +359,7 @@ export default function WebflowPagesPage() {
         ...prev,
         [pageId]: {
           ...prev[pageId],
-          status: 'error',
+          status: 'error' as const,
           error: err instanceof Error ? err.message : 'Translation failed'
         }
       }));
