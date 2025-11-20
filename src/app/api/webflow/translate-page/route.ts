@@ -152,12 +152,26 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
                 html: typeof po?.text?.html === 'string' ? po.text.html : undefined,
             })).filter((p: { propertyId: string; text?: string; html?: string }) => !!p.propertyId);
         }
+        
+        // Extract componentId from both component-instance and slot nodes
+        let componentIdValue: string | undefined;
+        if (n?.type === 'component-instance' && typeof n?.componentId === 'string') {
+            componentIdValue = n.componentId;
+        } else if (n?.type === 'slot') {
+            // Slots can contain components - check for componentId or nested structure
+            if (typeof n?.componentId === 'string') {
+                componentIdValue = n.componentId;
+            } else if (typeof n?.slot?.componentId === 'string') {
+                componentIdValue = n.slot.componentId;
+            }
+        }
+        
         return {
             nodeId: typeof n?.id === 'string' ? n.id : '',
             text: textValue,
             type: typeof n?.type === 'string' ? n.type : undefined,
             html: htmlValue,
-            componentId: typeof n?.componentId === 'string' ? n.componentId : undefined,
+            componentId: componentIdValue,
             propertyOverrides,
         };
     }).filter(n => n.nodeId);
@@ -222,12 +236,26 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
                 textValue = n.text.text;
             }
         }
+        
+        // Extract componentId from both component-instance and slot nodes
+        let componentIdValue: string | undefined;
+        if (n?.type === 'component-instance' && typeof n?.componentId === 'string') {
+            componentIdValue = n.componentId;
+        } else if (n?.type === 'slot') {
+            // Slots can contain components - check for componentId or nested structure
+            if (typeof n?.componentId === 'string') {
+                componentIdValue = n.componentId;
+            } else if (typeof n?.slot?.componentId === 'string') {
+                componentIdValue = n.slot.componentId;
+            }
+        }
+        
         return {
             nodeId: typeof n?.id === 'string' ? n.id : '',
             type: typeof n?.type === 'string' ? n.type : undefined,
             text: textValue,
             html: htmlValue,
-            componentId: typeof n?.componentId === 'string' ? n.componentId : undefined,
+            componentId: componentIdValue,
         };
     }).filter((n: any) => n.nodeId);
 
@@ -236,28 +264,56 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
 
 /**
  * Recursively collect all nested component IDs from a component's DOM
+ * This includes components nested directly AND components nested in slots
  */
 async function collectNestedComponentIds(
     siteId: string,
     componentId: string,
     token: string,
     branchId?: string | null,
-    visited: Set<string> = new Set()
+    visited: Set<string> = new Set(),
+    depth: number = 0
 ): Promise<string[]> {
-    if (visited.has(componentId)) return [];
+    if (visited.has(componentId)) {
+        console.log(`  ${'  '.repeat(depth)}⚠️ Already visited component ${componentId}, skipping to avoid cycle`);
+        return [];
+    }
     visited.add(componentId);
+    
+    console.log(`  ${'  '.repeat(depth)}🔍 Fetching DOM for component ${componentId} (depth ${depth})...`);
 
     const componentContent = await fetchComponentContent(siteId, componentId, token, branchId);
     const nestedIds: string[] = [];
+    
+    // Log all node types to understand the structure
+    const nodeTypes = new Map<string, number>();
+    componentContent.nodes.forEach(n => {
+        const type = n.type || 'unknown';
+        nodeTypes.set(type, (nodeTypes.get(type) || 0) + 1);
+    });
+    console.log(`  ${'  '.repeat(depth)}📊 Node types in component ${componentId}:`, Object.fromEntries(nodeTypes));
 
     for (const node of componentContent.nodes) {
+        // Check for component-instance nodes (direct component nesting)
         if (node.type === 'component-instance' && node.componentId) {
+            console.log(`  ${'  '.repeat(depth)}  ✓ Found nested component-instance: ${node.componentId}`);
             nestedIds.push(node.componentId);
             // Recursively collect from nested component
-            const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited);
+            const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, depth + 1);
+            nestedIds.push(...deeperIds);
+        }
+        
+        // Check for slot nodes (components can be nested in slots)
+        if (node.type === 'slot' && node.componentId) {
+            console.log(`  ${'  '.repeat(depth)}  ✓ Found component in slot: ${node.componentId}`);
+            nestedIds.push(node.componentId);
+            // Recursively collect from component in slot
+            const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, depth + 1);
             nestedIds.push(...deeperIds);
         }
     }
+    
+    console.log(`  ${'  '.repeat(depth)}📦 Component ${componentId} contains ${nestedIds.length} nested component(s)`);
 
     return nestedIds;
 }
@@ -845,13 +901,13 @@ export async function POST(request: NextRequest) {
             ));
             console.log(`Found ${topLevelComponentIds.length} top-level component(s) without overrides for ${locale.displayName}:`, topLevelComponentIds);
 
-            // Collect ALL component IDs from the page (including those with overrides) to find nested components
+            // Collect ALL component IDs from the page (including those with overrides AND slots) to find nested components
             const allTopLevelComponentIds = Array.from(new Set(
                 (pageContent.nodes || [])
-                    .filter(n => n.type === 'component-instance' && typeof n.componentId === 'string')
+                    .filter(n => (n.type === 'component-instance' || n.type === 'slot') && typeof n.componentId === 'string')
                     .map(n => n.componentId as string)
             ));
-            console.log(`Found ${allTopLevelComponentIds.length} total top-level component(s) (with and without overrides) for nested traversal`);
+            console.log(`Found ${allTopLevelComponentIds.length} total top-level component(s) (with and without overrides, including slots) for nested traversal`);
 
             // Collect all component IDs including nested ones from ALL top-level components
             const allComponentIds = new Set<string>();
