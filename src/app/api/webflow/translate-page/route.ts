@@ -5,6 +5,43 @@ import { translateBatch } from '@/lib/translation';
 const WEBFLOW_API_TOKEN = process.env.WEBFLOW_API_TOKEN;
 const WEBFLOW_SITE_ID = process.env.WEBFLOW_SITE_ID || '';
 
+// Helper function to handle rate limiting with exponential backoff
+async function fetchWithRetry(
+  url: string, 
+  options: RequestInit, 
+  maxRetries = 3
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      
+      // If rate limited, wait and retry
+      if (response.status === 429) {
+        if (attempt < maxRetries) {
+          // Exponential backoff: 2s, 4s, 8s
+          const waitTime = Math.pow(2, attempt + 1) * 1000;
+          console.log(`Rate limited. Waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+      }
+      
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      if (attempt < maxRetries) {
+        const waitTime = Math.pow(2, attempt + 1) * 1000;
+        console.log(`Request failed. Waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+  
+  throw lastError || new Error('Max retries exceeded');
+}
+
 async function fetchLocales(siteId: string, token: string) {
     const resp = await fetch(`https://api.webflow.com/v2/sites/${siteId}`, {
         headers: {
@@ -47,7 +84,7 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
         url.searchParams.set('offset', offset.toString());
         // Note: Webflow API seems to have a default limit of 100, we'll fetch in chunks
         
-        const response = await fetch(url.toString(), {
+        const response = await fetchWithRetry(url.toString(), {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'accept-version': '1.0.0',
@@ -76,6 +113,8 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
         
         if (hasMore) {
             console.log(`More nodes available, fetching next batch...`);
+            // Add a small delay between pagination requests to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
     }
 
@@ -141,7 +180,7 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
         if (branchId) url.searchParams.set('branchId', branchId);
         url.searchParams.set('offset', offset.toString());
         
-        const response = await fetch(url.toString(), {
+        const response = await fetchWithRetry(url.toString(), {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'accept-version': '1.0.0',
@@ -163,6 +202,11 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
         
         // Continue if we haven't reached the total yet
         hasMore = nodes.length > 0 && offset < total;
+        
+        if (hasMore) {
+            // Add a small delay between pagination requests to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
     }
 
     const nodes = allNodes;
@@ -520,29 +564,13 @@ async function updatePageContentSingle(
     }
 }
 
-// Helper to send keepalive messages
-function createKeepAliveStream(encoder: TextEncoder) {
-    let keepAliveInterval: NodeJS.Timeout | null = null;
-    
-    return {
-        start(controller: ReadableStreamDefaultController) {
-            // Send a comment every 10 seconds to keep connection alive
-            keepAliveInterval = setInterval(() => {
-                try {
-                    controller.enqueue(encoder.encode(': keepalive\n\n'));
-                } catch (e) {
-                    // Stream might be closed
-                    if (keepAliveInterval) clearInterval(keepAliveInterval);
-                }
-            }, 10000);
-        },
-        stop() {
-            if (keepAliveInterval) {
-                clearInterval(keepAliveInterval);
-                keepAliveInterval = null;
-            }
-        }
-    };
+// Helper to send progress updates (replaces setInterval-based keepalive which doesn't work in Workers)
+function sendProgress(controller: ReadableStreamDefaultController, encoder: TextEncoder, status: string, message: string) {
+    try {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ status, message })}\n\n`));
+    } catch (e) {
+        console.error('Failed to send progress update:', e);
+    }
 }
 
 export async function POST(request: NextRequest) {
@@ -551,9 +579,6 @@ export async function POST(request: NextRequest) {
     // Create a streaming response
     const stream = new ReadableStream({
         async start(controller) {
-            const keepAlive = createKeepAliveStream(encoder);
-            keepAlive.start(controller);
-            
             try {
                 const overrideToken = request.headers.get('x-webflow-token') || '';
                 const { searchParams } = new URL(request.url);
@@ -567,40 +592,45 @@ export async function POST(request: NextRequest) {
                 if (!pageId) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Page ID is required' })}\n\n`));
                     controller.close();
-                    keepAlive.stop();
                     return;
                 }
 
                 if (!targetLocaleId) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Target locale ID is required' })}\n\n`));
                     controller.close();
-                    keepAlive.stop();
                     return;
                 }
 
                 if (!token) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Webflow API token not configured' })}\n\n`));
                     controller.close();
-                    keepAlive.stop();
                     return;
                 }
 
                 if (!siteId) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Missing siteId' })}\n\n`));
                     controller.close();
-                    keepAlive.stop();
                     return;
                 }
 
 		console.log(`Starting translation for page: ${pageId}`);
+		
+		// Send initial progress
+		sendProgress(controller, encoder, 'fetching', 'Fetching page locales...');
 
 		// Step 0: Fetch locales dynamically
         const locales = await fetchLocales(siteId, token);
 		console.log('Locales used for translation:', locales);
+		
+		// Send progress
+		sendProgress(controller, encoder, 'fetching', 'Fetching page content...');
 
 		// Step 1: Fetch page content (primary locale)
         const pageContent = await fetchPageContent(pageId, token, branchId);
 		console.log("pageContent nodes count:", pageContent.nodes.length);
+		
+		// Send progress
+		sendProgress(controller, encoder, 'fetching', `Analyzing ${pageContent.nodes.length} nodes...`);
 		
 		// Log all component instances found on the page
 		const allComponentInstances = pageContent.nodes.filter(n => n.type === 'component-instance');
@@ -647,7 +677,6 @@ export async function POST(request: NextRequest) {
                         error: `Locale ${targetLocaleId} not found` 
                     })}\n\n`));
                     controller.close();
-                    keepAlive.stop();
                     return;
                 }
 
@@ -667,22 +696,26 @@ export async function POST(request: NextRequest) {
                 let translations: string[] = [];
                 try {
                     // Send progress update before translation
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                        status: 'translating', 
-                        message: `Starting translation of ${sources.length} text nodes...`,
-                    })}\n\n`));
+                    sendProgress(controller, encoder, 'translating', `Starting translation of ${sources.length} text nodes...`);
                     
-                    translations = await translateBatch(sources, {
-                        targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                        sourceLanguage: 'en',
-                        context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
-                    });
+                    // Translate in smaller chunks with progress updates
+                    const CHUNK_SIZE = 10;
+                    for (let i = 0; i < sources.length; i += CHUNK_SIZE) {
+                        const chunk = sources.slice(i, i + CHUNK_SIZE);
+                        const chunkTranslations = await translateBatch(chunk, {
+                            targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                            sourceLanguage: 'en',
+                            context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                        });
+                        translations.push(...chunkTranslations);
+                        
+                        // Send progress update after each chunk
+                        const progress = Math.min(i + CHUNK_SIZE, sources.length);
+                        sendProgress(controller, encoder, 'translating', `Translated ${progress}/${sources.length} text nodes...`);
+                    }
                     
                     // Send progress update after translation
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                        status: 'translating', 
-                        message: `Completed translating text nodes, preparing updates...`,
-                    })}\n\n`));
+                    sendProgress(controller, encoder, 'translating', `Completed translating text nodes, preparing updates...`);
                 } catch (error) {
                     console.error(`Failed to translate text nodes for ${locale.displayName}:`, error);
                     console.log('Failed sources:', sources.map((s, i) => `[${i}] ${s.substring(0, 100)}...`));
@@ -741,6 +774,8 @@ export async function POST(request: NextRequest) {
 
                     if (overrideItems.length > 0) {
                         try {
+                            sendProgress(controller, encoder, 'translating', `Translating ${overrideItems.length} component property overrides...`);
+                            
                             const overrideTranslations = await translateBatch(overrideItems.map(i => i.source), {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                                 sourceLanguage: 'en',
@@ -756,6 +791,8 @@ export async function POST(request: NextRequest) {
                             });
 
                             componentUpdateNodes = Array.from(group.entries()).map(([nodeId, propertyOverrides]) => ({ nodeId, propertyOverrides }));
+                            
+                            sendProgress(controller, encoder, 'translating', `Completed component property overrides translation`);
                         } catch (error) {
                             console.error(`Failed to translate component property overrides for ${locale.displayName}:`, error);
                             console.log('Failed overrides:', overrideItems.map(i => `${i.nodeId}/${i.propertyId}: ${i.source.substring(0, 100)}...`));
@@ -897,6 +934,8 @@ export async function POST(request: NextRequest) {
                     }
 
                     try {
+                        sendProgress(controller, encoder, 'translating', `Translating ${compTextNodes.length} text nodes in component ${processedComponents}/${allComponentIds.size}...`);
+                        
                         const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
                         const compTranslations = await translateBatch(compSources, {
                             targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
@@ -927,6 +966,8 @@ export async function POST(request: NextRequest) {
                             text: ensureWrapped(compTranslations[idx] ?? compSources[idx] ?? '', getRootTag(n.html)),
                         }));
 
+                        sendProgress(controller, encoder, 'updating', `Updating component ${processedComponents}/${allComponentIds.size} in Webflow...`);
+                        
                         console.log(`Updating ${compUpdateNodes.length} DOM text nodes for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
                         console.log(`Component ${componentId} DOM text nodes updated successfully`);
@@ -949,7 +990,6 @@ export async function POST(request: NextRequest) {
                 })}\n\n`));
                 
                 controller.close();
-                keepAlive.stop();
 
             } catch (error) {
                 console.error('Translation error:', error);
@@ -958,7 +998,6 @@ export async function POST(request: NextRequest) {
                     details: error instanceof Error ? error.message : 'Unknown error',
                 })}\n\n`));
                 controller.close();
-                keepAlive.stop();
             }
         }
     });

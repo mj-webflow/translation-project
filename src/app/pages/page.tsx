@@ -113,10 +113,11 @@ export default function WebflowPagesPage() {
     })
     .filter((page) => {
       if (!searchQuery) return true;
+      const query = searchQuery.toLowerCase();
       return (
-        page.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        page.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        page.publishedPath.toLowerCase().includes(searchQuery.toLowerCase())
+        page.title?.toLowerCase().includes(query) ||
+        page.slug?.toLowerCase().includes(query) ||
+        page.publishedPath?.toLowerCase().includes(query)
       );
     });
 
