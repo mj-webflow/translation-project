@@ -275,12 +275,12 @@ async function collectNestedComponentIds(
     depth: number = 0
 ): Promise<string[]> {
     if (visited.has(componentId)) {
-        console.log(`  ${'  '.repeat(depth)}Already visited component ${componentId}, skipping to avoid cycle`);
+        //console.log(`  ${'  '.repeat(depth)}Already visited component ${componentId}, skipping to avoid cycle`);
         return [];
     }
     visited.add(componentId);
     
-    console.log(`  ${'  '.repeat(depth)}Fetching DOM for component ${componentId} (depth ${depth})...`);
+    //console.log(`  ${'  '.repeat(depth)}Fetching DOM for component ${componentId} (depth ${depth})...`);
 
     const componentContent = await fetchComponentContent(siteId, componentId, token, branchId);
     const nestedIds: string[] = [];
@@ -291,12 +291,12 @@ async function collectNestedComponentIds(
         const type = n.type || 'unknown';
         nodeTypes.set(type, (nodeTypes.get(type) || 0) + 1);
     });
-    console.log(`  ${'  '.repeat(depth)}Node types in component ${componentId}:`, Object.fromEntries(nodeTypes));
+    //console.log(`  ${'  '.repeat(depth)}Node types in component ${componentId}:`, Object.fromEntries(nodeTypes));
 
     for (const node of componentContent.nodes) {
         // Check for component-instance nodes (direct component nesting)
         if (node.type === 'component-instance' && node.componentId) {
-            console.log(`  ${'  '.repeat(depth)}  Found nested component-instance: ${node.componentId}`);
+            //console.log(`  ${'  '.repeat(depth)}  Found nested component-instance: ${node.componentId}`);
             nestedIds.push(node.componentId);
             // Recursively collect from nested component
             const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, depth + 1);
@@ -305,7 +305,7 @@ async function collectNestedComponentIds(
         
         // Check for slot nodes (components can be nested in slots)
         if (node.type === 'slot' && node.componentId) {
-            console.log(`  ${'  '.repeat(depth)}  Found component in slot: ${node.componentId}`);
+            //console.log(`  ${'  '.repeat(depth)}  Found component in slot: ${node.componentId}`);
             nestedIds.push(node.componentId);
             // Recursively collect from component in slot
             const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, depth + 1);
@@ -341,7 +341,7 @@ async function fetchComponentProperties(
         throw new Error(`Failed to fetch component properties: ${errorText}`);
     }
     const json: any = await response.json();
-    console.log(`      Raw API response for component ${componentId}:`, JSON.stringify(json, null, 2));
+    //console.log(`      Raw API response for component ${componentId}:`, JSON.stringify(json, null, 2));
     
     // Try multiple possible response structures
     let props: any[] = [];
@@ -353,7 +353,7 @@ async function fetchComponentProperties(
         props = json.componentMetadata.properties;
     }
     
-    console.log(`Found ${props.length} raw properties in response`);
+    //console.log(`Found ${props.length} raw properties in response`);
     
     const result = props.map((p: any) => {
         // Try multiple possible field names for propertyId
@@ -376,11 +376,11 @@ async function fetchComponentProperties(
         }
             
         const preview = typeof text === 'string' ? text.substring(0, 50) : 'undefined';
-        console.log(`Property: id=${propertyId}, text=${preview}...`);
+        //console.log(`Property: id=${propertyId}, text=${preview}...`);
         return { propertyId, text };
     }).filter((p: any) => !!p.propertyId);
     
-    console.log(` Returning ${result.length} properties with IDs`);
+    //console.log(` Returning ${result.length} properties with IDs`);
     return result;
 }
 
@@ -519,7 +519,7 @@ async function updatePageContent(
             const batchNum = Math.floor(i / NODE_BATCH_SIZE) + 1;
             const totalBatches = Math.ceil(nodes.length / NODE_BATCH_SIZE);
             
-            console.log(`Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes)...`);
+            //console.log(`Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes)...`);
             await updatePageContentSingle(pageId, localeId, batch, token, branchId);
             
             // Small delay between batches
@@ -683,14 +683,14 @@ export async function POST(request: NextRequest) {
 
 		// Step 1: Fetch page content (primary locale)
         const pageContent = await fetchPageContent(pageId, token, branchId);
-		console.log("pageContent nodes count:", pageContent.nodes.length);
+		//console.log("pageContent nodes count:", pageContent.nodes.length);
 		
 		// Send progress
 		sendProgress(controller, encoder, 'fetching', `Analyzing ${pageContent.nodes.length} nodes...`);
 		
 		// Log all component instances found on the page
 		const allComponentInstances = pageContent.nodes.filter(n => n.type === 'component-instance');
-		console.log(`Found ${allComponentInstances.length} total component instance(s) on page`);
+		//console.log(`Found ${allComponentInstances.length} total component instance(s) on page`);
 		allComponentInstances.forEach((comp, idx) => {
 			console.log(`  Component ${idx + 1}: ID=${comp.componentId}, hasOverrides=${!!(comp.propertyOverrides && comp.propertyOverrides.length > 0)}, overrideCount=${comp.propertyOverrides?.length || 0}`);
 		});
@@ -720,7 +720,7 @@ export async function POST(request: NextRequest) {
 		console.log(`Found ${textNodes.length} text nodes to translate`);
 		
 		// Log sample of text nodes to verify testimonials are included
-		console.log('Sample text nodes (first 10):');
+		//console.log('Sample text nodes (first 10):');
 		textNodes.slice(0, 10).forEach((node, idx) => {
 			const preview = (node.html || node.text || '').substring(0, 60);
 			console.log(`  ${idx + 1}. ${preview}...`);
@@ -743,7 +743,7 @@ export async function POST(request: NextRequest) {
                     totalNodes: textNodes.length
                 })}\n\n`));
 
-                console.log(`\nProcessing locale: ${locale.displayName} (${locale.tag})`);
+                //console.log(`\nProcessing locale: ${locale.displayName} (${locale.tag})`);
 
                 const sources = textNodes.map((node) => (
                     typeof node.html === 'string' && node.html.length > 0 ? node.html : (node.text as string)
@@ -774,7 +774,7 @@ export async function POST(request: NextRequest) {
                     sendProgress(controller, encoder, 'translating', `Completed translating text nodes, preparing updates...`);
                 } catch (error) {
                     console.error(`Failed to translate text nodes for ${locale.displayName}:`, error);
-                    console.log('Failed sources:', sources.map((s, i) => `[${i}] ${s.substring(0, 100)}...`));
+                   // console.log('Failed sources:', sources.map((s, i) => `[${i}] ${s.substring(0, 100)}...`));
                     // Use original sources as fallback
                     translations = sources;
                 }
@@ -809,7 +809,7 @@ export async function POST(request: NextRequest) {
                 // Handle component instances: translate propertyOverrides
                 const componentNodes = pageContent.nodes.filter(n => n.type === 'component-instance' && Array.isArray(n.propertyOverrides) && (n.propertyOverrides as any).length > 0);
 
-                console.log(`Found ${componentNodes.length} component instance(s) with property overrides for ${locale.displayName}`);
+                //console.log(`Found ${componentNodes.length} component instance(s) with property overrides for ${locale.displayName}`);
                 let componentUpdateNodes: UpdateNode[] = [];
                 if (componentNodes.length > 0) {
                     // Send progress update for components
@@ -859,7 +859,7 @@ export async function POST(request: NextRequest) {
             const allUpdates: UpdateNode[] = [...textUpdateNodes, ...componentUpdateNodes];
             // Send page-level updates first (text nodes and property overrides)
             if (allUpdates.length > 0) {
-                console.log(`Updating ${allUpdates.length} nodes for ${locale.displayName}...`);
+                //console.log(`Updating ${allUpdates.length} nodes for ${locale.displayName}...`);
                 
                 // Send progress update before updating
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
@@ -899,7 +899,7 @@ export async function POST(request: NextRequest) {
             const topLevelComponentIds = Array.from(new Set(
                 componentsWithoutOverrides.map(n => n.componentId as string)
             ));
-            console.log(`Found ${topLevelComponentIds.length} top-level component(s) without overrides for ${locale.displayName}:`, topLevelComponentIds);
+            //console.log(`Found ${topLevelComponentIds.length} top-level component(s) without overrides for ${locale.displayName}:`, topLevelComponentIds);
 
             // Collect ALL component IDs from the page (including those with overrides AND slots) to find nested components
             const allTopLevelComponentIds = Array.from(new Set(
@@ -907,7 +907,7 @@ export async function POST(request: NextRequest) {
                     .filter(n => (n.type === 'component-instance' || n.type === 'slot') && typeof n.componentId === 'string')
                     .map(n => n.componentId as string)
             ));
-            console.log(`Found ${allTopLevelComponentIds.length} total top-level component(s) (with and without overrides, including slots) for nested traversal`);
+            //console.log(`Found ${allTopLevelComponentIds.length} total top-level component(s) (with and without overrides, including slots) for nested traversal`);
 
             // Collect all component IDs including nested ones from ALL top-level components
             const allComponentIds = new Set<string>();
@@ -917,15 +917,15 @@ export async function POST(request: NextRequest) {
             
             // Traverse ALL top-level components to find nested components (even if parent has overrides)
             for (const componentId of allTopLevelComponentIds) {
-                console.log(`  Traversing component ${componentId} for nested components...`);
+                //console.log(`  Traversing component ${componentId} for nested components...`);
                 // Recursively collect nested component IDs
                 const nestedIds = await collectNestedComponentIds(siteId, componentId, token, branchId);
-                console.log(`    Found ${nestedIds.length} nested component(s) inside ${componentId}:`, nestedIds);
+                //console.log(`    Found ${nestedIds.length} nested component(s) inside ${componentId}:`, nestedIds);
                 nestedIds.forEach(id => allComponentIds.add(id));
             }
 
-            console.log(`Found ${allComponentIds.size} component(s) to translate (including nested) for ${locale.displayName}`);
-            console.log(`All component IDs to translate:`, Array.from(allComponentIds));
+            //console.log(`Found ${allComponentIds.size} component(s) to translate (including nested) for ${locale.displayName}`);
+            //console.log(`All component IDs to translate:`, Array.from(allComponentIds));
 
             // Send progress update for component processing
             if (allComponentIds.size > 0) {
@@ -938,7 +938,7 @@ export async function POST(request: NextRequest) {
             let processedComponents = 0;
             for (const componentId of allComponentIds) {
                 processedComponents++;
-                console.log(`  Processing component ${componentId} for ${locale.displayName}... (${processedComponents}/${allComponentIds.size})`);
+                //console.log(`  Processing component ${componentId} for ${locale.displayName}... (${processedComponents}/${allComponentIds.size})`);
                 
                 // Send progress update for each component
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
@@ -948,7 +948,7 @@ export async function POST(request: NextRequest) {
                 
                 // Try to fetch and translate component properties first
                 const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
-                console.log(`Fetched ${properties.length} properties for component ${componentId}`);
+                //console.log(`Fetched ${properties.length} properties for component ${componentId}`);
                 const translatableProps = properties.filter(p => typeof p.text === 'string' && p.text.trim().length > 0);
                 console.log(` ${translatableProps.length} properties have translatable text`);
                 
@@ -983,25 +983,25 @@ export async function POST(request: NextRequest) {
 
                         sendProgress(controller, encoder, 'updating', `Updating component ${processedComponents}/${allComponentIds.size} properties in Webflow...`);
                         
-                        console.log(`Updating ${propertiesPayload.length} properties for component ${componentId} in locale ${locale.displayName}`);
+                        //console.log(`Updating ${propertiesPayload.length} properties for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
-                        console.log(`Component ${componentId} properties updated successfully`);
+                        //console.log(`Component ${componentId} properties updated successfully`);
                     } catch (error) {
                         console.error(`Failed to translate/update component ${componentId} properties for ${locale.displayName}:`, error);
-                        console.log(`Failed properties:`, translatableProps.map(p => `${p.propertyId}: ${(p.text || '').substring(0, 100)}...`));
+                        //console.log(`Failed properties:`, translatableProps.map(p => `${p.propertyId}: ${(p.text || '').substring(0, 100)}...`));
                     }
                 } else {
                     // If no properties, try to translate DOM text nodes
-                    console.log(`No properties found, checking DOM text nodes for component ${componentId}...`);
+                    //console.log(`No properties found, checking DOM text nodes for component ${componentId}...`);
                     const comp = await fetchComponentContent(siteId, componentId, token, branchId);
                     const compTextNodes = comp.nodes.filter(n => n.type === 'text' && (
                         (typeof n.html === 'string' && n.html.trim().length > 0) ||
                         (typeof n.text === 'string' && n.text.trim().length > 0)
                     ));
-                    console.log(`Found ${compTextNodes.length} text nodes in component ${componentId} DOM`);
+                    //console.log(`Found ${compTextNodes.length} text nodes in component ${componentId} DOM`);
                     
                     if (compTextNodes.length === 0) {
-                        console.log(`Component ${componentId} has no properties and no text nodes to translate`);
+                        //console.log(`Component ${componentId} has no properties and no text nodes to translate`);
                         continue;
                     }
 
@@ -1052,7 +1052,7 @@ export async function POST(request: NextRequest) {
 
                         sendProgress(controller, encoder, 'updating', `Updating component ${processedComponents}/${allComponentIds.size} in Webflow...`);
                         
-                        console.log(`Updating ${compUpdateNodes.length} DOM text nodes for component ${componentId} in locale ${locale.displayName}`);
+                        //console.log(`Updating ${compUpdateNodes.length} DOM text nodes for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
                         console.log(`Component ${componentId} DOM text nodes updated successfully`);
                     } catch (error) {

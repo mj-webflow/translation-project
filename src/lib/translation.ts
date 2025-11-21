@@ -221,7 +221,7 @@ async function translatePlainText(
       console.error('Unexpected OpenAI response format:', data);
       throw new Error('Unexpected translation response');
     }
-    console.log('translatedText', translatedText);
+    //console.log('translatedText', translatedText);
     return translatedText.trim();
   } catch (error) {
     console.error('Translation error:', error);
