@@ -275,12 +275,12 @@ async function collectNestedComponentIds(
     depth: number = 0
 ): Promise<string[]> {
     if (visited.has(componentId)) {
-        console.log(`  ${'  '.repeat(depth)}⚠️ Already visited component ${componentId}, skipping to avoid cycle`);
+        console.log(`  ${'  '.repeat(depth)}Already visited component ${componentId}, skipping to avoid cycle`);
         return [];
     }
     visited.add(componentId);
     
-    console.log(`  ${'  '.repeat(depth)}🔍 Fetching DOM for component ${componentId} (depth ${depth})...`);
+    console.log(`  ${'  '.repeat(depth)}Fetching DOM for component ${componentId} (depth ${depth})...`);
 
     const componentContent = await fetchComponentContent(siteId, componentId, token, branchId);
     const nestedIds: string[] = [];
@@ -291,12 +291,12 @@ async function collectNestedComponentIds(
         const type = n.type || 'unknown';
         nodeTypes.set(type, (nodeTypes.get(type) || 0) + 1);
     });
-    console.log(`  ${'  '.repeat(depth)}📊 Node types in component ${componentId}:`, Object.fromEntries(nodeTypes));
+    console.log(`  ${'  '.repeat(depth)}Node types in component ${componentId}:`, Object.fromEntries(nodeTypes));
 
     for (const node of componentContent.nodes) {
         // Check for component-instance nodes (direct component nesting)
         if (node.type === 'component-instance' && node.componentId) {
-            console.log(`  ${'  '.repeat(depth)}  ✓ Found nested component-instance: ${node.componentId}`);
+            console.log(`  ${'  '.repeat(depth)}  Found nested component-instance: ${node.componentId}`);
             nestedIds.push(node.componentId);
             // Recursively collect from nested component
             const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, depth + 1);
@@ -305,7 +305,7 @@ async function collectNestedComponentIds(
         
         // Check for slot nodes (components can be nested in slots)
         if (node.type === 'slot' && node.componentId) {
-            console.log(`  ${'  '.repeat(depth)}  ✓ Found component in slot: ${node.componentId}`);
+            console.log(`  ${'  '.repeat(depth)}  Found component in slot: ${node.componentId}`);
             nestedIds.push(node.componentId);
             // Recursively collect from component in slot
             const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, depth + 1);
@@ -313,7 +313,7 @@ async function collectNestedComponentIds(
         }
     }
     
-    console.log(`  ${'  '.repeat(depth)}📦 Component ${componentId} contains ${nestedIds.length} nested component(s)`);
+    console.log(`  ${'  '.repeat(depth)}Component ${componentId} contains ${nestedIds.length} nested component(s)`);
 
     return nestedIds;
 }
@@ -954,12 +954,26 @@ export async function POST(request: NextRequest) {
                 
                 if (translatableProps.length > 0) {
                     try {
+                        sendProgress(controller, encoder, 'translating', `Translating ${translatableProps.length} properties in component ${processedComponents}/${allComponentIds.size}...`);
+                        
                         const compSources = translatableProps.map(p => p.text as string);
-                        const compTranslations = await translateBatch(compSources, {
-                            targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                            sourceLanguage: 'en',
-                            context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
-                        });
+                        
+                        // Translate in chunks with progress updates for large components
+                        const compTranslations: string[] = [];
+                        const CHUNK_SIZE = 10;
+                        for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
+                            const chunk = compSources.slice(i, i + CHUNK_SIZE);
+                            const chunkTranslations = await translateBatch(chunk, {
+                                targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                                sourceLanguage: 'en',
+                                context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                            });
+                            compTranslations.push(...chunkTranslations);
+                            
+                            // Send progress update after each chunk
+                            const progress = Math.min(i + CHUNK_SIZE, compSources.length);
+                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} properties in component ${processedComponents}/${allComponentIds.size}...`);
+                        }
 
                         // Build properties payload with translated text (HTML preserved by translator)
                         const propertiesPayload = translatableProps.map((p, idx) => ({
@@ -967,6 +981,8 @@ export async function POST(request: NextRequest) {
                             text: compTranslations[idx] ?? p.text ?? '',
                         }));
 
+                        sendProgress(controller, encoder, 'updating', `Updating component ${processedComponents}/${allComponentIds.size} properties in Webflow...`);
+                        
                         console.log(`Updating ${propertiesPayload.length} properties for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
                         console.log(`Component ${componentId} properties updated successfully`);
@@ -993,11 +1009,23 @@ export async function POST(request: NextRequest) {
                         sendProgress(controller, encoder, 'translating', `Translating ${compTextNodes.length} text nodes in component ${processedComponents}/${allComponentIds.size}...`);
                         
                         const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
-                        const compTranslations = await translateBatch(compSources, {
-                            targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                            sourceLanguage: 'en',
-                            context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
-                        });
+                        
+                        // Translate in chunks with progress updates for large components
+                        const compTranslations: string[] = [];
+                        const CHUNK_SIZE = 10;
+                        for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
+                            const chunk = compSources.slice(i, i + CHUNK_SIZE);
+                            const chunkTranslations = await translateBatch(chunk, {
+                                targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                                sourceLanguage: 'en',
+                                context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                            });
+                            compTranslations.push(...chunkTranslations);
+                            
+                            // Send progress update after each chunk
+                            const progress = Math.min(i + CHUNK_SIZE, compSources.length);
+                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} text nodes in component ${processedComponents}/${allComponentIds.size}...`);
+                        }
 
                         const getRootTag = (html?: string): string | undefined => {
                             if (!html || typeof html !== 'string') return undefined;
