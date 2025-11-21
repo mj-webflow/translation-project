@@ -418,15 +418,12 @@ export default function WebflowPagesPage() {
                 <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{userEmail}</div>
               </div>
             )}
-            {/* TEMP: Sign Out button hidden while auth is disabled */}
-            {/* TODO: Re-enable when auth is turned back on
             <button
               onClick={handleLogout}
               className="px-4 py-2 bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 rounded-lg hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors text-sm font-medium"
             >
               Sign Out
             </button>
-            */}
           </div>
         </div>
 
