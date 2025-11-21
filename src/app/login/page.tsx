@@ -30,6 +30,12 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Validate @webflow.com domain before attempting login
+    if (!email.endsWith('@webflow.com')) {
+      setError('Access restricted to @webflow.com email addresses only.');
+      return;
+    }
+    
     setLoading(true);
     setError('');
     setMessage('');
@@ -58,7 +64,7 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        // Check if email ends with @webflow.com
+        // Double-check email domain (belt and suspenders approach)
         if (!data.user.email?.endsWith('@webflow.com')) {
           await client.auth.signOut();
           setError('Access restricted to @webflow.com email addresses only.');
@@ -83,6 +89,12 @@ export default function LoginPage() {
       return;
     }
 
+    // Validate @webflow.com domain
+    if (!email.endsWith('@webflow.com')) {
+      setError('Access restricted to @webflow.com email addresses only.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setMessage('');
@@ -97,10 +109,8 @@ export default function LoginPage() {
       }
       console.log('Supabase client ready:', !!client);
       
-      // Construct the redirect URL
-      // Use the current page's full URL path to derive the correct base
-      const currentPath = window.location.pathname;
-      const basePath = currentPath.replace(/\/login.*$/, ''); // Remove /login and everything after
+      // Construct the redirect URL - must match exactly what's in Supabase redirect URLs
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
       const redirectUrl = `${window.location.origin}${basePath}/reset-password`;
       
       console.log('Password reset redirect URL:', redirectUrl);
@@ -169,6 +179,8 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                pattern=".*@webflow\.com$"
+                title="Please use a @webflow.com email address"
                 className="w-full px-4 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 placeholder-zinc-500 dark:placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="you@webflow.com"
               />
