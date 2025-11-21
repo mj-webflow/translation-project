@@ -30,6 +30,12 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Validate @webflow.com domain before attempting login
+    if (!email.endsWith('@webflow.com')) {
+      setError('Access restricted to @webflow.com email addresses only.');
+      return;
+    }
+    
     setLoading(true);
     setError('');
     setMessage('');
@@ -58,7 +64,7 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        // Check if email ends with @webflow.com
+        // Double-check email domain (belt and suspenders approach)
         if (!data.user.email?.endsWith('@webflow.com')) {
           await client.auth.signOut();
           setError('Access restricted to @webflow.com email addresses only.');
@@ -80,6 +86,12 @@ export default function LoginPage() {
   const handleForgotPassword = async () => {
     if (!email) {
       setError('Please enter your email address first.');
+      return;
+    }
+
+    // Validate @webflow.com domain
+    if (!email.endsWith('@webflow.com')) {
+      setError('Access restricted to @webflow.com email addresses only.');
       return;
     }
 
@@ -167,6 +179,8 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                pattern=".*@webflow\.com$"
+                title="Please use a @webflow.com email address"
                 className="w-full px-4 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 placeholder-zinc-500 dark:placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="you@webflow.com"
               />

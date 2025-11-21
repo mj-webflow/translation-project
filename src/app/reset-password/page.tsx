@@ -19,28 +19,48 @@ export default function ResetPasswordPage() {
         const client = await createClient();
         setSupabase(client);
         
-        // Check if we have a token in the URL (from email link)
+        // Check if we have a token_hash in the URL (from email link)
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        const accessToken = hashParams.get('access_token');
-        const refreshToken = hashParams.get('refresh_token');
+        const tokenHash = hashParams.get('token_hash');
         const type = hashParams.get('type');
         
         console.log('Reset password page loaded');
         console.log('Token type:', type);
-        console.log('Has access token:', !!accessToken);
-        console.log('Has refresh token:', !!refreshToken);
+        console.log('Has token_hash:', !!tokenHash);
         
-        // If we have tokens in the URL, Supabase should automatically handle them
-        // Just check if we have a valid session
-        const { data } = await client.auth.getSession();
-        console.log('Session data:', data);
-        
-        if (data.session) {
-          console.log('Valid session found');
-          setIsValidToken(true);
+        // If we have a token_hash, verify it using verifyOtp
+        if (tokenHash && type === 'recovery') {
+          console.log('Verifying OTP token...');
+          const { data, error } = await client.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: 'recovery'
+          });
+          
+          console.log('VerifyOtp response:', { data, error });
+          
+          if (error) {
+            console.error('Token verification failed:', error);
+            setError('Invalid or expired reset link. Please request a new password reset.');
+          } else if (data.session) {
+            console.log('Token verified successfully, session created');
+            setIsValidToken(true);
+          } else {
+            console.log('Token verified but no session created');
+            setError('Invalid or expired reset link. Please request a new password reset.');
+          }
         } else {
-          console.log('No valid session found');
-          setError('Invalid or expired reset link. Please request a new password reset.');
+          // Fallback: check if we already have a valid session (e.g., from access_token in URL)
+          console.log('No token_hash found, checking for existing session...');
+          const { data } = await client.auth.getSession();
+          console.log('Session data:', data);
+          
+          if (data.session) {
+            console.log('Valid session found');
+            setIsValidToken(true);
+          } else {
+            console.log('No valid session found');
+            setError('Invalid or expired reset link. Please request a new password reset.');
+          }
         }
       } catch (err) {
         setError('Authentication service is not configured. Please contact your administrator.');
