@@ -19,11 +19,27 @@ export default function ResetPasswordPage() {
         const client = await createClient();
         setSupabase(client);
         
-        // Check if we have a valid session from the reset link
+        // Check if we have a token in the URL (from email link)
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        const type = hashParams.get('type');
+        
+        console.log('Reset password page loaded');
+        console.log('Token type:', type);
+        console.log('Has access token:', !!accessToken);
+        console.log('Has refresh token:', !!refreshToken);
+        
+        // If we have tokens in the URL, Supabase should automatically handle them
+        // Just check if we have a valid session
         const { data } = await client.auth.getSession();
+        console.log('Session data:', data);
+        
         if (data.session) {
+          console.log('Valid session found');
           setIsValidToken(true);
         } else {
+          console.log('No valid session found');
           setError('Invalid or expired reset link. Please request a new password reset.');
         }
       } catch (err) {

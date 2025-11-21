@@ -97,10 +97,8 @@ export default function LoginPage() {
       }
       console.log('Supabase client ready:', !!client);
       
-      // Construct the redirect URL
-      // Use the current page's full URL path to derive the correct base
-      const currentPath = window.location.pathname;
-      const basePath = currentPath.replace(/\/login.*$/, ''); // Remove /login and everything after
+      // Construct the redirect URL - must match exactly what's in Supabase redirect URLs
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
       const redirectUrl = `${window.location.origin}${basePath}/reset-password`;
       
       console.log('Password reset redirect URL:', redirectUrl);
