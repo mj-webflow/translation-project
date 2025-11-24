@@ -173,6 +173,7 @@ export default function WebflowPagesPage() {
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
       
       const completedLocales: string[] = [];
+      const failedLocales: Array<{ name: string; error: string }> = [];
       let totalNodesTranslated = 0;
 
       // Translate one locale at a time
@@ -191,6 +192,10 @@ export default function WebflowPagesPage() {
         }));
 
         try {
+          // Set up a timeout to detect if the stream stops sending data
+          let lastMessageTime = Date.now();
+          const TIMEOUT_MS = 60000; // 60 seconds without a message = timeout
+          
           const response = await fetch(`${basePath}/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -262,6 +267,7 @@ export default function WebflowPagesPage() {
                 try {
                   const data = JSON.parse(line.slice(6));
                   console.log(`SSE message for ${localeName}:`, data);
+                  lastMessageTime = Date.now(); // Reset timeout on each message
                   
                   if (data.error) {
                     throw new Error(data.error);
@@ -312,31 +318,51 @@ export default function WebflowPagesPage() {
           }
         } catch (localeError) {
           console.error(`Failed to translate to ${localeName}:`, localeError);
+          const errorMessage = localeError instanceof Error ? localeError.message : 'Unknown error';
+          failedLocales.push({ name: localeName, error: errorMessage });
+          
           // Continue with next locale instead of failing completely
           setTranslationProgress(prev => ({
             ...prev,
             [pageId]: {
               ...prev[pageId],
-              currentStep: `Failed to translate to ${localeName}, continuing...`,
+              currentStep: `Failed to translate to ${localeName}: ${errorMessage}`,
             }
           }));
         }
       }
 
       // All locales processed
-      console.log(`🎉 All locales processed. Final completed count: ${completedLocales.length}/${selectedLocaleIds.length}`);
+      console.log(`All locales processed. Final completed count: ${completedLocales.length}/${selectedLocaleIds.length}`);
       console.log(`Final completed locales array:`, completedLocales);
+      console.log(`Failed locales:`, failedLocales);
       console.log(`Total nodes translated:`, totalNodesTranslated);
       
+      // Build final status message
+      let finalMessage = '';
+      if (completedLocales.length === selectedLocaleIds.length) {
+        finalMessage = `Translation complete! Successfully translated to all ${completedLocales.length} locale(s)`;
+      } else if (completedLocales.length > 0) {
+        finalMessage = `Partially complete: Translated to ${completedLocales.length}/${selectedLocaleIds.length} locale(s). `;
+        if (failedLocales.length > 0) {
+          const failedNames = failedLocales.map(f => f.name).join(', ');
+          finalMessage += `Failed: ${failedNames}`;
+        }
+      } else {
+        finalMessage = `Translation failed for all locales. Please check the logs and try again.`;
+      }
+      
       setTranslationProgress(prev => {
+        const finalStatus: 'complete' | 'error' = completedLocales.length > 0 ? 'complete' : 'error';
         const finalProgress = {
           ...prev,
           [pageId]: {
             ...prev[pageId],
-            status: 'complete' as const,
+            status: finalStatus,
             completedLocales: [...completedLocales],
-            currentStep: `Translation complete! Translated to ${completedLocales.length}/${selectedLocaleIds.length} locale(s)`,
+            currentStep: finalMessage,
             nodesCount: totalNodesTranslated,
+            error: failedLocales.length > 0 ? failedLocales.map(f => `${f.name}: ${f.error}`).join('; ') : undefined,
           }
         };
         console.log(`Final progress state for ${pageId}:`, finalProgress[pageId]);
