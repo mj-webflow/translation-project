@@ -506,7 +506,9 @@ async function updatePageContent(
     localeId: string,
     nodes: UpdateNode[],
     token: string,
-    branchId?: string | null
+    branchId?: string | null,
+    controller?: ReadableStreamDefaultController,
+    encoder?: TextEncoder
 ): Promise<void> {
     const NODE_BATCH_SIZE = 25; // Update 25 nodes at a time to send more frequent progress updates and avoid timeouts
     
