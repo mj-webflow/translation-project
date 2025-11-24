@@ -12,8 +12,9 @@ interface TranslationProgress {
   completedLocales: string[];
   totalLocales?: number;
   currentStep?: string;
-  nodesCount?: number;
-  componentsCount?: number;
+  nodesTranslated?: number;
+  componentsTranslated?: number;
+  totalComponents?: number;
 }
 
 export default function WebflowPagesPage() {
@@ -162,7 +163,7 @@ export default function WebflowPagesPage() {
         status: 'fetching' as const,
         completedLocales: [],
         totalLocales: selectedLocaleIds.length,
-        currentStep: 'Fetching page content...',
+        currentStep: 'Getting list of components...',
       }
     }));
 
@@ -175,6 +176,22 @@ export default function WebflowPagesPage() {
       const completedLocales: string[] = [];
       const failedLocales: Array<{ name: string; error: string }> = [];
       let totalNodesTranslated = 0;
+      let totalComponentsTranslated = 0;
+
+      // Step 1: Get list of components on the page
+      const componentsResponse = await fetch(
+        `${basePath}/api/webflow/page-components?pageId=${encodeURIComponent(pageId)}&siteId=${encodeURIComponent(storedSiteId)}${branchId}`,
+        {
+          headers: storedToken ? { 'x-webflow-token': storedToken } : {},
+        }
+      );
+
+      if (!componentsResponse.ok) {
+        throw new Error('Failed to fetch page components');
+      }
+
+      const { componentIds, totalComponents } = await componentsResponse.json();
+      console.log(`Found ${totalComponents} components on page ${pageId}:`, componentIds);
 
       // Translate one locale at a time
       for (let i = 0; i < selectedLocaleIds.length; i++) {
@@ -187,135 +204,122 @@ export default function WebflowPagesPage() {
             ...prev[pageId], 
             status: 'translating' as const, 
             currentStep: `Translating to ${localeName}... (${i + 1}/${selectedLocaleIds.length})`,
-            completedLocales: [...completedLocales]
+            completedLocales: [...completedLocales],
+            totalComponents,
+            componentsTranslated: 0,
           }
         }));
 
         try {
-          // Set up a timeout to detect if the stream stops sending data
-          let lastMessageTime = Date.now();
-          const TIMEOUT_MS = 60000; // 60 seconds without a message = timeout
+          // Step 2: Translate page content (text nodes only, skip components)
+          setTranslationProgress(prev => ({
+            ...prev,
+            [pageId]: {
+              ...prev[pageId],
+              currentStep: `${localeName}: Translating page text...`,
+            }
+          }));
+
+          const pageResponse = await fetch(
+            `${basePath}/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(storedToken ? { 'x-webflow-token': storedToken } : {}),
+              },
+              body: JSON.stringify({
+                pageId,
+                targetLocaleId: localeId,
+                translatePageContent: true,
+                translateComponents: false,
+              })
+            }
+          );
+
+          if (!pageResponse.ok || !pageResponse.body) {
+            throw new Error(`Page translation request failed for ${localeName}`);
+          }
+
+          // Read the streaming response for page content
+          await processStreamingResponse(
+            pageResponse.body,
+            localeName,
+            (message) => {
+              setTranslationProgress(prev => ({
+                ...prev,
+                [pageId]: {
+                  ...prev[pageId],
+                  currentStep: `${localeName}: ${message}`,
+                }
+              }));
+            }
+          );
+
+          // Step 3: Translate each component separately
+          for (let compIdx = 0; compIdx < componentIds.length; compIdx++) {
+            const componentId = componentIds[compIdx];
+            
+            setTranslationProgress(prev => ({
+              ...prev,
+              [pageId]: {
+                ...prev[pageId],
+                currentStep: `${localeName}: Translating component ${compIdx + 1}/${totalComponents}...`,
+                componentsTranslated: compIdx,
+              }
+            }));
+
+            const componentResponse = await fetch(
+              `${basePath}/api/webflow/translate-component?siteId=${encodeURIComponent(storedSiteId)}${branchId}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(storedToken ? { 'x-webflow-token': storedToken } : {}),
+                },
+                body: JSON.stringify({
+                  componentId,
+                  targetLocaleId: localeId,
+                })
+              }
+            );
+
+            if (!componentResponse.ok || !componentResponse.body) {
+              console.warn(`Failed to translate component ${componentId} for ${localeName}`);
+              continue; // Skip this component but continue with others
+            }
+
+            // Read the streaming response for component
+            await processStreamingResponse(
+              componentResponse.body,
+              localeName,
+              (message) => {
+                setTranslationProgress(prev => ({
+                  ...prev,
+                  [pageId]: {
+                    ...prev[pageId],
+                    currentStep: `${localeName}: Component ${compIdx + 1}/${totalComponents} - ${message}`,
+                  }
+                }));
+              }
+            );
+          }
+
+          // Mark locale as completed
+          completedLocales.push(localeName);
+          totalComponentsTranslated += totalComponents;
+          console.log(`✓ Completed translation to ${localeName}. Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
           
-          const response = await fetch(`${basePath}/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            ...(storedToken ? { headers: { 'Content-Type': 'application/json', 'x-webflow-token': storedToken } } : {}),
-            body: JSON.stringify({ pageId, targetLocaleId: localeId })
-          });
-
-          if (!response.ok || !response.body) {
-            throw new Error(`Translation request failed for ${localeName}`);
-          }
-
-          // Read the streaming response
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          while (true) {
-            const { done, value } = await reader.read();
-            
-            if (done) {
-              console.log(`Stream ended for ${localeName}. Completed locales so far:`, completedLocales);
-              console.log(`Buffer remaining:`, buffer);
-              // Process any remaining buffer
-              if (buffer.trim()) {
-                console.log(`Processing remaining buffer for ${localeName}:`, buffer);
-                if (buffer.startsWith('data: ')) {
-                  try {
-                    const data = JSON.parse(buffer.slice(6));
-                    console.log(`Final SSE message from buffer for ${localeName}:`, data);
-                    if (data.success) {
-                      // Check if this locale was already added
-                      if (!completedLocales.includes(localeName)) {
-                        completedLocales.push(localeName);
-                        totalNodesTranslated += data.nodesTranslated || 0;
-                        console.log(`✓ Completed translation to ${localeName} (from buffer). Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
-                        
-                        // Update progress state
-                        setTranslationProgress(prev => ({
-                          ...prev,
-                          [pageId]: {
-                            ...prev[pageId],
-                            completedLocales: [...completedLocales],
-                            currentStep: `✓ Completed ${localeName} (${completedLocales.length}/${selectedLocaleIds.length})`,
-                          }
-                        }));
-                      } else {
-                        console.log(`Locale ${localeName} already marked as completed, skipping duplicate`);
-                      }
-                    }
-                  } catch (e) {
-                    console.warn('Failed to parse final buffer:', buffer);
-                  }
-                }
-              }
-              break;
+          setTranslationProgress(prev => ({
+            ...prev,
+            [pageId]: {
+              ...prev[pageId],
+              completedLocales: [...completedLocales],
+              currentStep: `✓ Completed ${localeName} (${completedLocales.length}/${selectedLocaleIds.length})`,
+              componentsTranslated: totalComponents,
             }
-            
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-            
-            for (const line of lines) {
-              if (line.trim() === '' || line.startsWith(':')) {
-                // Skip empty lines and keepalive comments
-                continue;
-              }
-              
-              if (line.startsWith('data: ')) {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  console.log(`SSE message for ${localeName}:`, data);
-                  lastMessageTime = Date.now(); // Reset timeout on each message
-                  
-                  if (data.error) {
-                    throw new Error(data.error);
-                  }
-                  
-                  if (data.status) {
-                    // Update progress with status messages
-                    console.log(`Updating progress for ${localeName}:`, data.message || data.status);
-                    setTranslationProgress(prev => ({
-                      ...prev,
-                      [pageId]: {
-                        ...prev[pageId],
-                        currentStep: `${localeName}: ${data.message || data.status}`,
-                      }
-                    }));
-                  }
-                  
-                  if (data.success) {
-                    // Locale completed successfully - check for duplicates
-                    if (!completedLocales.includes(localeName)) {
-                      completedLocales.push(localeName);
-                      totalNodesTranslated += data.nodesTranslated || 0;
-                      console.log(`✓ Completed translation to ${localeName}. Total completed: ${completedLocales.length}/${selectedLocaleIds.length}`);
-                      console.log(`Completed locales array:`, completedLocales);
-                      
-                      // Update progress with completed locale
-                      setTranslationProgress(prev => {
-                        const updatedProgress = {
-                          ...prev,
-                          [pageId]: {
-                            ...prev[pageId],
-                            completedLocales: [...completedLocales],
-                            currentStep: `✓ Completed ${localeName} (${completedLocales.length}/${selectedLocaleIds.length})`,
-                          }
-                        };
-                        console.log(`Updated progress state for ${pageId}:`, updatedProgress[pageId]);
-                        return updatedProgress;
-                      });
-                    } else {
-                      console.log(`Locale ${localeName} already marked as completed, skipping duplicate`);
-                    }
-                  }
-                } catch (e) {
-                  console.warn('Failed to parse SSE message:', line);
-                }
-              }
-            }
-          }
+          }));
+
         } catch (localeError) {
           console.error(`Failed to translate to ${localeName}:`, localeError);
           const errorMessage = localeError instanceof Error ? localeError.message : 'Unknown error';
@@ -336,7 +340,6 @@ export default function WebflowPagesPage() {
       console.log(`All locales processed. Final completed count: ${completedLocales.length}/${selectedLocaleIds.length}`);
       console.log(`Final completed locales array:`, completedLocales);
       console.log(`Failed locales:`, failedLocales);
-      console.log(`Total nodes translated:`, totalNodesTranslated);
       
       // Build final status message
       let finalMessage = '';
@@ -361,7 +364,8 @@ export default function WebflowPagesPage() {
             status: finalStatus,
             completedLocales: [...completedLocales],
             currentStep: finalMessage,
-            nodesCount: totalNodesTranslated,
+            nodesTranslated: totalNodesTranslated,
+            componentsTranslated: totalComponentsTranslated,
             error: failedLocales.length > 0 ? failedLocales.map(f => `${f.name}: ${f.error}`).join('; ') : undefined,
           }
         };
@@ -372,7 +376,7 @@ export default function WebflowPagesPage() {
       // Refresh pages list
       const storedSiteIdRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
       const storedTokenRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
-      const pagesResponse = await fetch(`/api/webflow/pages${storedSiteIdRefresh ? `?siteId=${encodeURIComponent(storedSiteIdRefresh)}` : ''}`, {
+      const pagesResponse = await fetch(`${basePath}/api/webflow/pages${storedSiteIdRefresh ? `?siteId=${encodeURIComponent(storedSiteIdRefresh)}` : ''}`, {
         headers: storedTokenRefresh ? { 'x-webflow-token': storedTokenRefresh } : {},
       });
       if (pagesResponse.ok) {
@@ -392,6 +396,62 @@ export default function WebflowPagesPage() {
       }));
     }
   };
+
+  // Helper function to process streaming SSE responses
+  async function processStreamingResponse(
+    body: ReadableStream<Uint8Array>,
+    localeName: string,
+    onProgress: (message: string) => void
+  ): Promise<void> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      
+      if (done) {
+        // Process any remaining buffer
+        if (buffer.trim() && buffer.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(buffer.slice(6));
+            if (data.error) {
+              throw new Error(data.error);
+            }
+          } catch (e) {
+            console.warn('Failed to parse final buffer:', buffer);
+          }
+        }
+        break;
+      }
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      
+      for (const line of lines) {
+        if (line.trim() === '' || line.startsWith(':')) {
+          continue;
+        }
+        
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            
+            if (data.error) {
+              throw new Error(data.error);
+            }
+            
+            if (data.message) {
+              onProgress(data.message);
+            }
+          } catch (e) {
+            console.warn('Failed to parse SSE message:', line);
+          }
+        }
+      }
+    }
+  }
 
   if (loading) {
     return (
