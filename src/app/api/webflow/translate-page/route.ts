@@ -508,7 +508,7 @@ async function updatePageContent(
     token: string,
     branchId?: string | null
 ): Promise<void> {
-    const NODE_BATCH_SIZE = 50; // Update 50 nodes at a time to avoid payload size limits
+    const NODE_BATCH_SIZE = 25; // Update 25 nodes at a time to send more frequent progress updates and avoid timeouts
     
     // If nodes array is large, split into batches
     if (nodes.length > NODE_BATCH_SIZE) {
@@ -519,8 +519,17 @@ async function updatePageContent(
             const batchNum = Math.floor(i / NODE_BATCH_SIZE) + 1;
             const totalBatches = Math.ceil(nodes.length / NODE_BATCH_SIZE);
             
-            //console.log(`Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes)...`);
+            // Send progress update before each Webflow API call
+            if (controller && encoder) {
+                sendProgress(controller, encoder, 'updating', `Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes) in Webflow...`);
+            }
+            
             await updatePageContentSingle(pageId, localeId, batch, token, branchId);
+            
+            // Send progress update after each batch completes
+            if (controller && encoder) {
+                sendProgress(controller, encoder, 'updating', `Completed batch ${batchNum}/${totalBatches}`);
+            }
             
             // Small delay between batches
             if (i + NODE_BATCH_SIZE < nodes.length) {
