@@ -755,9 +755,11 @@ export async function POST(request: NextRequest) {
                     sendProgress(controller, encoder, 'translating', `Starting translation of ${sources.length} text nodes...`);
                     
                     // Translate in smaller chunks with progress updates
-                    const CHUNK_SIZE = 10;
+                    const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
                     for (let i = 0; i < sources.length; i += CHUNK_SIZE) {
                         const chunk = sources.slice(i, i + CHUNK_SIZE);
+                        sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, sources.length)} of ${sources.length}...`);
+                        
                         const chunkTranslations = await translateBatch(chunk, {
                             targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                             sourceLanguage: 'en',
@@ -767,7 +769,7 @@ export async function POST(request: NextRequest) {
                         
                         // Send progress update after each chunk
                         const progress = Math.min(i + CHUNK_SIZE, sources.length);
-                        sendProgress(controller, encoder, 'translating', `Translated ${progress}/${sources.length} text nodes...`);
+                        sendProgress(controller, encoder, 'translating', `Translated ${progress}/${sources.length} text nodes`);
                     }
                     
                     // Send progress update after translation
@@ -960,9 +962,11 @@ export async function POST(request: NextRequest) {
                         
                         // Translate in chunks with progress updates for large components
                         const compTranslations: string[] = [];
-                        const CHUNK_SIZE = 10;
+                        const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
                         for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
                             const chunk = compSources.slice(i, i + CHUNK_SIZE);
+                            sendProgress(controller, encoder, 'translating', `Translating properties ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${allComponentIds.size}...`);
+                            
                             const chunkTranslations = await translateBatch(chunk, {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                                 sourceLanguage: 'en',
@@ -972,7 +976,7 @@ export async function POST(request: NextRequest) {
                             
                             // Send progress update after each chunk
                             const progress = Math.min(i + CHUNK_SIZE, compSources.length);
-                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} properties in component ${processedComponents}/${allComponentIds.size}...`);
+                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} properties in component ${processedComponents}/${allComponentIds.size}`);
                         }
 
                         // Build properties payload with translated text (HTML preserved by translator)
@@ -1012,9 +1016,11 @@ export async function POST(request: NextRequest) {
                         
                         // Translate in chunks with progress updates for large components
                         const compTranslations: string[] = [];
-                        const CHUNK_SIZE = 10;
+                        const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
                         for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
                             const chunk = compSources.slice(i, i + CHUNK_SIZE);
+                            sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${allComponentIds.size}...`);
+                            
                             const chunkTranslations = await translateBatch(chunk, {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                                 sourceLanguage: 'en',
@@ -1024,7 +1030,7 @@ export async function POST(request: NextRequest) {
                             
                             // Send progress update after each chunk
                             const progress = Math.min(i + CHUNK_SIZE, compSources.length);
-                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} text nodes in component ${processedComponents}/${allComponentIds.size}...`);
+                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} text nodes in component ${processedComponents}/${allComponentIds.size}`);
                         }
 
                         const getRootTag = (html?: string): string | undefined => {

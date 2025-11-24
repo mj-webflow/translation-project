@@ -116,7 +116,7 @@ translation-project/
 
 - **Framework**: Next.js 16 (App Router)
 - **UI**: React 19 with Tailwind CSS 4
-- **Translation**: OpenAI GPT-4o-mini
+- **Translation**: OpenAI GPT-4o mini
 - **APIs**: Webflow Data API v2
 - **Language**: TypeScript
 
