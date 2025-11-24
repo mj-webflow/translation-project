@@ -510,7 +510,7 @@ async function updatePageContent(
     controller?: ReadableStreamDefaultController,
     encoder?: TextEncoder
 ): Promise<void> {
-    const NODE_BATCH_SIZE = 25; // Update 25 nodes at a time to send more frequent progress updates and avoid timeouts
+    const NODE_BATCH_SIZE = 15; // Update 15 nodes at a time for very frequent progress updates and avoid timeouts
     
     // If nodes array is large, split into batches
     if (nodes.length > NODE_BATCH_SIZE) {
@@ -765,8 +765,8 @@ export async function POST(request: NextRequest) {
                     // Send progress update before translation
                     sendProgress(controller, encoder, 'translating', `Starting translation of ${sources.length} text nodes...`);
                     
-                    // Translate in smaller chunks with progress updates
-                    const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
+                    // Translate in very small chunks with aggressive progress updates
+                    const CHUNK_SIZE = 3; // Very small chunks for maximum update frequency
                     for (let i = 0; i < sources.length; i += CHUNK_SIZE) {
                         const chunk = sources.slice(i, i + CHUNK_SIZE);
                         sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, sources.length)} of ${sources.length}...`);
@@ -960,20 +960,23 @@ export async function POST(request: NextRequest) {
                 })}\n\n`));
                 
                 // Try to fetch and translate component properties first
+                sendProgress(controller, encoder, 'translating', `Fetching properties for component ${processedComponents}/${allComponentIds.size}...`);
                 const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
                 //console.log(`Fetched ${properties.length} properties for component ${componentId}`);
                 const translatableProps = properties.filter(p => typeof p.text === 'string' && p.text.trim().length > 0);
                 console.log(` ${translatableProps.length} properties have translatable text`);
                 
                 if (translatableProps.length > 0) {
+                    sendProgress(controller, encoder, 'translating', `Found ${translatableProps.length} properties to translate in component ${processedComponents}/${allComponentIds.size}`);
+                    
                     try {
                         sendProgress(controller, encoder, 'translating', `Translating ${translatableProps.length} properties in component ${processedComponents}/${allComponentIds.size}...`);
                         
                         const compSources = translatableProps.map(p => p.text as string);
                         
-                        // Translate in chunks with progress updates for large components
+                        // Translate in very small chunks with aggressive progress updates
                         const compTranslations: string[] = [];
-                        const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
+                        const CHUNK_SIZE = 3; // Very small chunks for maximum update frequency
                         for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
                             const chunk = compSources.slice(i, i + CHUNK_SIZE);
                             sendProgress(controller, encoder, 'translating', `Translating properties ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${allComponentIds.size}...`);
@@ -1007,7 +1010,7 @@ export async function POST(request: NextRequest) {
                     }
                 } else {
                     // If no properties, try to translate DOM text nodes
-                    //console.log(`No properties found, checking DOM text nodes for component ${componentId}...`);
+                    sendProgress(controller, encoder, 'translating', `Fetching DOM content for component ${processedComponents}/${allComponentIds.size}...`);
                     const comp = await fetchComponentContent(siteId, componentId, token, branchId);
                     const compTextNodes = comp.nodes.filter(n => n.type === 'text' && (
                         (typeof n.html === 'string' && n.html.trim().length > 0) ||
@@ -1019,15 +1022,17 @@ export async function POST(request: NextRequest) {
                         //console.log(`Component ${componentId} has no properties and no text nodes to translate`);
                         continue;
                     }
+                    
+                    sendProgress(controller, encoder, 'translating', `Found ${compTextNodes.length} text nodes to translate in component ${processedComponents}/${allComponentIds.size}`);
 
                     try {
                         sendProgress(controller, encoder, 'translating', `Translating ${compTextNodes.length} text nodes in component ${processedComponents}/${allComponentIds.size}...`);
                         
                         const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
                         
-                        // Translate in chunks with progress updates for large components
+                        // Translate in very small chunks with aggressive progress updates
                         const compTranslations: string[] = [];
-                        const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
+                        const CHUNK_SIZE = 3; // Very small chunks for maximum update frequency
                         for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
                             const chunk = compSources.slice(i, i + CHUNK_SIZE);
                             sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${allComponentIds.size}...`);
@@ -1079,27 +1084,27 @@ export async function POST(request: NextRequest) {
                 }
             }
 
-                console.log(`Translation complete for page ${pageId} to locale ${locale.displayName}.`);
+            console.log(`Translation complete for page ${pageId} to locale ${locale.displayName}.`);
 
-                // Send final success message
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                    success: true,
-                    pageId,
-                    localeId: locale.id,
-                    localeName: locale.displayName,
-                    nodesTranslated: textNodes.length,
-                })}\n\n`));
-                
-                controller.close();
+            // Send final success message
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                success: true,
+                pageId,
+                localeId: locale.id,
+                localeName: locale.displayName,
+                nodesTranslated: textNodes.length,
+            })}\n\n`));
+            
+            controller.close();
 
-            } catch (error) {
-                console.error('Translation error:', error);
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                    error: 'Translation failed',
-                    details: error instanceof Error ? error.message : 'Unknown error',
-                })}\n\n`));
-                controller.close();
-            }
+        } catch (error) {
+            console.error('Translation error:', error);
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                error: 'Translation failed',
+                details: error instanceof Error ? error.message : 'Unknown error',
+            })}\n\n`));
+            controller.close();
+        }
         }
     });
 
