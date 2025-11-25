@@ -529,10 +529,7 @@ async function updatePageContent(
                 sendProgress(controller, encoder, 'updating', `Completed batch ${batchNum}/${totalBatches}`);
             }
             
-            // Small delay between batches to avoid rate limiting
-            if (i + NODE_BATCH_SIZE < nodes.length) {
-                await new Promise(resolve => setTimeout(resolve, 100)); // Reduced from 300ms to 100ms
-            }
+            // No delay - update as fast as possible to avoid timeout
         }
         return;
     }
@@ -817,31 +814,19 @@ export async function POST(request: NextRequest) {
                     let translations: string[] = [];
                     try {
                         // Send progress update before translation
-                        sendProgress(controller, encoder, 'translating', `Starting translation of ${sources.length} text nodes...`);
+                        sendProgress(controller, encoder, 'translating', `Translating ${sources.length} text nodes...`);
                         
-                        // Translate in chunks with progress updates
-                        const CHUNK_SIZE = 10; // Balance between speed and progress updates
-                        for (let i = 0; i < sources.length; i += CHUNK_SIZE) {
-                            const chunk = sources.slice(i, i + CHUNK_SIZE);
-                            sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, sources.length)} of ${sources.length}...`);
-                            
-                            const chunkTranslations = await translateBatch(chunk, {
-                                targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                                sourceLanguage: 'en',
-                                context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
-                            });
-                            translations.push(...chunkTranslations);
-                            
-                            // Send progress update after each chunk
-                            const progress = Math.min(i + CHUNK_SIZE, sources.length);
-                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${sources.length} text nodes`);
-                        }
+                        // Translate all at once in parallel (no chunking needed)
+                        translations = await translateBatch(sources, {
+                            targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                            sourceLanguage: 'en',
+                            context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                        });
                         
                         // Send progress update after translation
-                        sendProgress(controller, encoder, 'translating', `Completed translating text nodes, preparing updates...`);
+                        sendProgress(controller, encoder, 'updating', `Translated ${sources.length} text nodes, updating Webflow...`);
                     } catch (error) {
                         console.error(`Failed to translate text nodes for ${locale.displayName}:`, error);
-                       // console.log('Failed sources:', sources.map((s, i) => `[${i}] ${s.substring(0, 100)}...`));
                         // Use original sources as fallback
                         translations = sources;
                     }
@@ -994,24 +979,14 @@ export async function POST(request: NextRequest) {
                         
                         const compSources = translatableProps.map(p => p.text as string);
                         
-                        // Translate in chunks with progress updates for large components
-                        const compTranslations: string[] = [];
-                        const CHUNK_SIZE = 10; // Balance between speed and progress updates
-                        for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
-                            const chunk = compSources.slice(i, i + CHUNK_SIZE);
-                            sendProgress(controller, encoder, 'translating', `Translating properties ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${totalComponentsInBatch}...`);
-                            
-                            const chunkTranslations = await translateBatch(chunk, {
-                                targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                                sourceLanguage: 'en',
-                                context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
-                            });
-                            compTranslations.push(...chunkTranslations);
-                            
-                            // Send progress update after each chunk
-                            const progress = Math.min(i + CHUNK_SIZE, compSources.length);
-                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} properties in component ${processedComponents}/${totalComponentsInBatch}`);
-                        }
+                        // Translate all properties in parallel (no chunking)
+                        sendProgress(controller, encoder, 'translating', `Translating ${compSources.length} properties in component ${processedComponents}/${totalComponentsInBatch}...`);
+                        
+                        const compTranslations = await translateBatch(compSources, {
+                            targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                            sourceLanguage: 'en',
+                            context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                        });
 
                         // Build properties payload with translated text (HTML preserved by translator)
                         // Strip newlines from translations to avoid "not multiline" errors
@@ -1064,24 +1039,14 @@ export async function POST(request: NextRequest) {
                         
                         const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
                         
-                        // Translate in chunks with progress updates for large components
-                        const compTranslations: string[] = [];
-                        const CHUNK_SIZE = 10; // Balance between speed and progress updates
-                        for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
-                            const chunk = compSources.slice(i, i + CHUNK_SIZE);
-                            sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${totalComponentsInBatch}...`);
-                            
-                            const chunkTranslations = await translateBatch(chunk, {
-                                targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                                sourceLanguage: 'en',
-                                context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
-                            });
-                            compTranslations.push(...chunkTranslations);
-                            
-                            // Send progress update after each chunk
-                            const progress = Math.min(i + CHUNK_SIZE, compSources.length);
-                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} text nodes in component ${processedComponents}/${totalComponentsInBatch}`);
-                        }
+                        // Translate all text nodes in parallel (no chunking)
+                        sendProgress(controller, encoder, 'translating', `Translating ${compSources.length} text nodes in component ${processedComponents}/${totalComponentsInBatch}...`);
+                        
+                        const compTranslations = await translateBatch(compSources, {
+                            targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                            sourceLanguage: 'en',
+                            context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                        });
 
                         const getRootTag = (html?: string): string | undefined => {
                             if (!html || typeof html !== 'string') return undefined;
