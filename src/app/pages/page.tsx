@@ -16,6 +16,14 @@ interface TranslationProgress {
   componentsCount?: number;
 }
 
+interface PageComponent {
+  nodeId: string;
+  componentId: string;
+  name: string;
+  hasOverrides: boolean;
+  overrideCount: number;
+}
+
 export default function WebflowPagesPage() {
   const [pages, setPages] = useState<WebflowPage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +37,13 @@ export default function WebflowPagesPage() {
   const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGES_PER_PAGE = 50;
+  
+  // Component batch selection state
+  const [expandedPageId, setExpandedPageId] = useState<string | null>(null);
+  const [pageComponentsMap, setPageComponentsMap] = useState<Record<string, PageComponent[]>>({});
+  const [loadingComponentsMap, setLoadingComponentsMap] = useState<Record<string, boolean>>({});
+  const [selectedBatchMap, setSelectedBatchMap] = useState<Record<string, number>>({});
+  const COMPONENTS_PER_BATCH = 10;
   
   // Initialize Supabase and get user info
   useEffect(() => {
@@ -135,6 +150,55 @@ export default function WebflowPagesPage() {
   const publishedCount = pages.filter((p) => !p.draft).length;
   const draftCount = pages.filter((p) => p.draft).length;
 
+  // Fetch components for a page
+  const fetchPageComponents = async (page: WebflowPage) => {
+    const pageId = page.id;
+    
+    // Don't fetch if already loaded
+    if (pageComponentsMap[pageId]) return;
+    
+    setLoadingComponentsMap(prev => ({ ...prev, [pageId]: true }));
+    try {
+      const storedSiteId = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
+      const storedToken = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
+      const branchId = page.branchId ? `&branchId=${encodeURIComponent(page.branchId)}` : '';
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+      
+      const response = await fetch(`${basePath}/api/webflow/page-components?pageId=${page.id}&siteId=${storedSiteId}${branchId}`, {
+        headers: {
+          'x-webflow-token': storedToken,
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch components');
+      }
+      
+      const data = await response.json();
+      setPageComponentsMap(prev => ({ ...prev, [pageId]: data.components || [] }));
+      
+      // Initialize selected batch to 0
+      if (!selectedBatchMap[pageId]) {
+        setSelectedBatchMap(prev => ({ ...prev, [pageId]: 0 }));
+      }
+    } catch (error) {
+      console.error('Error fetching components:', error);
+      setPageComponentsMap(prev => ({ ...prev, [pageId]: [] }));
+    } finally {
+      setLoadingComponentsMap(prev => ({ ...prev, [pageId]: false }));
+    }
+  };
+
+  const togglePageExpanded = async (page: WebflowPage) => {
+    const pageId = page.id;
+    if (expandedPageId === pageId) {
+      setExpandedPageId(null);
+    } else {
+      setExpandedPageId(pageId);
+      await fetchPageComponents(page);
+    }
+  };
+
   const handleTranslatePage = async (page: WebflowPage) => {
     const pageId = page.id;
     if (selectedLocaleIds.length === 0) {
@@ -196,11 +260,26 @@ export default function WebflowPagesPage() {
           let lastMessageTime = Date.now();
           const TIMEOUT_MS = 60000; // 60 seconds without a message = timeout
           
+          // Calculate component batch range
+          const selectedBatch = selectedBatchMap[pageId] || 0;
+          const batchStart = selectedBatch * COMPONENTS_PER_BATCH;
+          const batchEnd = batchStart + COMPONENTS_PER_BATCH;
+          
+          // Check if text nodes were already translated for this page+locale
+          const textNodesKey = `translated_text_nodes_${pageId}_${localeId}`;
+          const skipTextNodes = typeof window !== 'undefined' && localStorage.getItem(textNodesKey) === 'true';
+          
           const response = await fetch(`${basePath}/api/webflow/translate-page${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}${branchId}` : ''}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             ...(storedToken ? { headers: { 'Content-Type': 'application/json', 'x-webflow-token': storedToken } } : {}),
-            body: JSON.stringify({ pageId, targetLocaleId: localeId })
+            body: JSON.stringify({ 
+              pageId, 
+              targetLocaleId: localeId,
+              componentBatchStart: batchStart,
+              componentBatchEnd: batchEnd,
+              skipTextNodes
+            })
           });
 
           if (!response.ok || !response.body) {
@@ -366,6 +445,22 @@ export default function WebflowPagesPage() {
           }
         };
         console.log(`Final progress state for ${pageId}:`, finalProgress[pageId]);
+        
+        // Mark this batch as completed in localStorage if all locales succeeded
+        if (completedLocales.length === selectedLocaleIds.length && typeof window !== 'undefined') {
+          const selectedBatch = selectedBatchMap[pageId] || 0;
+          const storageKey = `translated_${pageId}_batch_${selectedBatch}`;
+          localStorage.setItem(storageKey, 'true');
+          console.log(`Marked batch ${selectedBatch} as completed in localStorage`);
+          
+          // Also mark text nodes as translated for each locale (so they won't be re-translated)
+          selectedLocaleIds.forEach(localeId => {
+            const textNodesKey = `translated_text_nodes_${pageId}_${localeId}`;
+            localStorage.setItem(textNodesKey, 'true');
+          });
+          console.log(`Marked text nodes as translated for ${selectedLocaleIds.length} locale(s)`);
+        }
+        
         return finalProgress;
       });
 
@@ -697,21 +792,113 @@ export default function WebflowPagesPage() {
                     {/* Action Buttons */}
                     <div className="flex flex-col gap-2">
                       <button
-                        onClick={() => handleTranslatePage(page)}
-                        disabled={isTranslating}
-                        className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
-                          isTranslating
-                            ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
-                            : 'bg-blue-600 hover:bg-blue-700 text-white'
-                        }`}
+                        onClick={() => togglePageExpanded(page)}
+                        className="px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 hover:bg-zinc-300 dark:hover:bg-zinc-600"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                        <svg className={`w-4 h-4 transition-transform ${expandedPageId === page.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
-                        {isTranslating ? 'Translating...' : 'Translate'}
+                        {expandedPageId === page.id ? 'Hide' : 'Show'} Component Batches
                       </button>
                     </div>
                   </div>
+                  
+                  {/* Component Batch Selection */}
+                  {expandedPageId === page.id && (
+                    <div className="mt-4 p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                      {loadingComponentsMap[page.id] ? (
+                        <div className="text-center py-4">
+                          <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-zinc-900 border-r-transparent dark:border-zinc-50"></div>
+                          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Loading components...</p>
+                        </div>
+                      ) : !pageComponentsMap[page.id] || pageComponentsMap[page.id].length === 0 ? (
+                        <div className="text-center py-4">
+                          <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-3">No components found on this page.</p>
+                          <button
+                            onClick={() => handleTranslatePage(page)}
+                            disabled={isTranslating}
+                            className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 mx-auto ${
+                              isTranslating
+                                ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
+                                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                            }`}
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                            </svg>
+                            Translate Page Content Only
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 mb-3">
+                            Select Component Batch ({pageComponentsMap[page.id].length} total components)
+                          </h3>
+                          <div className="space-y-2 mb-4">
+                            {Array.from({ length: Math.ceil(pageComponentsMap[page.id].length / COMPONENTS_PER_BATCH) }, (_, batchIndex) => {
+                              const batchStart = batchIndex * COMPONENTS_PER_BATCH;
+                              const batchEnd = Math.min(batchStart + COMPONENTS_PER_BATCH, pageComponentsMap[page.id].length);
+                              const batchComponents = pageComponentsMap[page.id].slice(batchStart, batchEnd);
+                              
+                              // Check if this batch is completed
+                              const storageKey = `translated_${page.id}_batch_${batchIndex}`;
+                              const isCompleted = typeof window !== 'undefined' && localStorage.getItem(storageKey) === 'true';
+                              const isSelected = (selectedBatchMap[page.id] || 0) === batchIndex;
+                              
+                              return (
+                                <label
+                                  key={batchIndex}
+                                  className={`flex items-start p-3 border rounded-lg cursor-pointer transition-colors ${
+                                    isSelected
+                                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                                      : 'border-zinc-300 dark:border-zinc-600 hover:border-zinc-400 dark:hover:border-zinc-500'
+                                  } ${isCompleted ? 'opacity-60' : ''}`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`componentBatch_${page.id}`}
+                                    value={batchIndex}
+                                    checked={isSelected}
+                                    onChange={() => setSelectedBatchMap(prev => ({ ...prev, [page.id]: batchIndex }))}
+                                    className="mt-1 mr-3"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="font-medium text-sm text-zinc-900 dark:text-zinc-50">
+                                        Components {batchStart + 1}-{batchEnd}
+                                      </span>
+                                      {isCompleted && (
+                                        <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded">
+                                          ✓ Translated
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-zinc-600 dark:text-zinc-400 truncate">
+                                      {batchComponents.map((comp, idx) => comp.name).join(', ')}
+                                    </div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <button
+                            onClick={() => handleTranslatePage(page)}
+                            disabled={isTranslating}
+                            className={`w-full px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
+                              isTranslating
+                                ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
+                                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                            }`}
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                            </svg>
+                            {isTranslating ? 'Translating...' : 'Translate Selected Batch'}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })

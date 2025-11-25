@@ -654,7 +654,7 @@ export async function POST(request: NextRequest) {
                 const token = overrideToken || WEBFLOW_API_TOKEN || '';
 
                 const body = await request.json();
-                const { pageId, targetLocaleId } = body;
+                const { pageId, targetLocaleId, componentBatchStart, componentBatchEnd, skipTextNodes } = body;
 
                 if (!pageId) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Page ID is required' })}\n\n`));
@@ -747,77 +747,85 @@ export async function POST(request: NextRequest) {
                     return;
                 }
 
-                // Send progress update
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                    status: 'translating', 
-                    message: `Translating ${textNodes.length} text nodes to ${locale.displayName}...`,
-                    totalNodes: textNodes.length
-                })}\n\n`));
+                // Translate text nodes (unless skipTextNodes is true)
+                let textUpdateNodes: UpdateNode[] = [];
+                
+                if (skipTextNodes) {
+                    console.log(`Skipping text node translation as requested (already translated)`);
+                    sendProgress(controller, encoder, 'translating', `Skipping text nodes (already translated)...`);
+                } else {
+                    // Send progress update
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'translating', 
+                        message: `Translating ${textNodes.length} text nodes to ${locale.displayName}...`,
+                        totalNodes: textNodes.length
+                    })}\n\n`));
 
-                //console.log(`\nProcessing locale: ${locale.displayName} (${locale.tag})`);
+                    //console.log(`\nProcessing locale: ${locale.displayName} (${locale.tag})`);
 
-                const sources = textNodes.map((node) => (
-                    typeof node.html === 'string' && node.html.length > 0 ? node.html : (node.text as string)
-                ));
+                    const sources = textNodes.map((node) => (
+                        typeof node.html === 'string' && node.html.length > 0 ? node.html : (node.text as string)
+                    ));
 
-                let translations: string[] = [];
-                try {
-                    // Send progress update before translation
-                    sendProgress(controller, encoder, 'translating', `Starting translation of ${sources.length} text nodes...`);
-                    
-                    // Translate in smaller chunks with progress updates
-                    const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
-                    for (let i = 0; i < sources.length; i += CHUNK_SIZE) {
-                        const chunk = sources.slice(i, i + CHUNK_SIZE);
-                        sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, sources.length)} of ${sources.length}...`);
+                    let translations: string[] = [];
+                    try {
+                        // Send progress update before translation
+                        sendProgress(controller, encoder, 'translating', `Starting translation of ${sources.length} text nodes...`);
                         
-                        const chunkTranslations = await translateBatch(chunk, {
-                            targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                            sourceLanguage: 'en',
-                            context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
-                        });
-                        translations.push(...chunkTranslations);
+                        // Translate in smaller chunks with progress updates
+                        const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
+                        for (let i = 0; i < sources.length; i += CHUNK_SIZE) {
+                            const chunk = sources.slice(i, i + CHUNK_SIZE);
+                            sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, sources.length)} of ${sources.length}...`);
+                            
+                            const chunkTranslations = await translateBatch(chunk, {
+                                targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                                sourceLanguage: 'en',
+                                context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                            });
+                            translations.push(...chunkTranslations);
+                            
+                            // Send progress update after each chunk
+                            const progress = Math.min(i + CHUNK_SIZE, sources.length);
+                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${sources.length} text nodes`);
+                        }
                         
-                        // Send progress update after each chunk
-                        const progress = Math.min(i + CHUNK_SIZE, sources.length);
-                        sendProgress(controller, encoder, 'translating', `Translated ${progress}/${sources.length} text nodes`);
+                        // Send progress update after translation
+                        sendProgress(controller, encoder, 'translating', `Completed translating text nodes, preparing updates...`);
+                    } catch (error) {
+                        console.error(`Failed to translate text nodes for ${locale.displayName}:`, error);
+                       // console.log('Failed sources:', sources.map((s, i) => `[${i}] ${s.substring(0, 100)}...`));
+                        // Use original sources as fallback
+                        translations = sources;
                     }
-                    
-                    // Send progress update after translation
-                    sendProgress(controller, encoder, 'translating', `Completed translating text nodes, preparing updates...`);
-                } catch (error) {
-                    console.error(`Failed to translate text nodes for ${locale.displayName}:`, error);
-                   // console.log('Failed sources:', sources.map((s, i) => `[${i}] ${s.substring(0, 100)}...`));
-                    // Use original sources as fallback
-                    translations = sources;
+
+                    const getRootTag = (html?: string): string | undefined => {
+                        if (!html || typeof html !== 'string') return undefined;
+                        const m = html.trim().match(/^<([a-z0-9-]+)\b/i);
+                        return m ? m[1].toLowerCase() : undefined;
+                    };
+
+                    const escapeHtml = (str: string): string => str
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;');
+
+                    const ensureWrapped = (content: string, tag?: string): string => {
+                        const trimmed = (content || '').trim();
+                        if (!tag) return trimmed;
+                        if (trimmed.startsWith('<')) return trimmed; // already HTML
+                        return `<${tag}>${escapeHtml(trimmed)}</${tag}>`;
+                    };
+
+                    textUpdateNodes = textNodes.map((node, idx) => {
+                        const content = translations[idx] ?? sources[idx] ?? '';
+                        const rootTag = getRootTag(node.html);
+                        return {
+                            nodeId: node.nodeId,
+                            text: ensureWrapped(content, rootTag),
+                        };
+                    });
                 }
-
-				const getRootTag = (html?: string): string | undefined => {
-					if (!html || typeof html !== 'string') return undefined;
-					const m = html.trim().match(/^<([a-z0-9-]+)\b/i);
-					return m ? m[1].toLowerCase() : undefined;
-				};
-
-				const escapeHtml = (str: string): string => str
-					.replace(/&/g, '&amp;')
-					.replace(/</g, '&lt;')
-					.replace(/>/g, '&gt;');
-
-				const ensureWrapped = (content: string, tag?: string): string => {
-					const trimmed = (content || '').trim();
-					if (!tag) return trimmed;
-					if (trimmed.startsWith('<')) return trimmed; // already HTML
-					return `<${tag}>${escapeHtml(trimmed)}</${tag}>`;
-				};
-
-                const textUpdateNodes: UpdateNode[] = textNodes.map((node, idx) => {
-					const content = translations[idx] ?? sources[idx] ?? '';
-					const rootTag = getRootTag(node.html);
-					return {
-						nodeId: node.nodeId,
-						text: ensureWrapped(content, rootTag),
-					};
-				});
 
                 // Handle component instances: translate propertyOverrides
                 const componentNodes = pageContent.nodes.filter(n => n.type === 'component-instance' && Array.isArray(n.propertyOverrides) && (n.propertyOverrides as any).length > 0);
@@ -937,26 +945,40 @@ export async function POST(request: NextRequest) {
                 nestedIds.forEach(id => allComponentIds.add(id));
             }
 
-            //console.log(`Found ${allComponentIds.size} component(s) to translate (including nested) for ${locale.displayName}`);
+            //console.log(`Found ${totalComponentsInBatch} component(s) to translate (including nested) for ${locale.displayName}`);
             //console.log(`All component IDs to translate:`, Array.from(allComponentIds));
 
-            // Send progress update for component processing
-            if (allComponentIds.size > 0) {
+            // Apply component batch filtering if specified
+            let componentArray = Array.from(allComponentIds);
+            if (typeof componentBatchStart === 'number' && typeof componentBatchEnd === 'number') {
+                const originalCount = componentArray.length;
+                componentArray = componentArray.slice(componentBatchStart, componentBatchEnd);
+                console.log(`Component batch filter: processing components ${componentBatchStart}-${componentBatchEnd} (${componentArray.length} of ${originalCount} total)`);
+                
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                     status: 'translating', 
-                    message: `Processing ${allComponentIds.size} component definition(s)...`,
+                    message: `Processing component batch ${componentBatchStart + 1}-${componentBatchEnd} (${componentArray.length} components)...`,
                 })}\n\n`));
+            } else {
+                // Send progress update for component processing
+                if (componentArray.length > 0) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                        status: 'translating', 
+                        message: `Processing ${componentArray.length} component definition(s)...`,
+                    })}\n\n`));
+                }
             }
 
             let processedComponents = 0;
-            for (const componentId of allComponentIds) {
+            const totalComponentsInBatch = componentArray.length;
+            for (const componentId of componentArray) {
                 processedComponents++;
-                //console.log(`  Processing component ${componentId} for ${locale.displayName}... (${processedComponents}/${allComponentIds.size})`);
+                //console.log(`  Processing component ${componentId} for ${locale.displayName}... (${processedComponents}/${totalComponentsInBatch})`);
                 
                 // Send progress update for each component
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                     status: 'translating', 
-                    message: `Processing component ${processedComponents}/${allComponentIds.size}...`,
+                    message: `Processing component ${processedComponents}/${totalComponentsInBatch}...`,
                 })}\n\n`));
                 
                 // Try to fetch and translate component properties first
@@ -967,7 +989,7 @@ export async function POST(request: NextRequest) {
                 
                 if (translatableProps.length > 0) {
                     try {
-                        sendProgress(controller, encoder, 'translating', `Translating ${translatableProps.length} properties in component ${processedComponents}/${allComponentIds.size}...`);
+                        sendProgress(controller, encoder, 'translating', `Translating ${translatableProps.length} properties in component ${processedComponents}/${totalComponentsInBatch}...`);
                         
                         const compSources = translatableProps.map(p => p.text as string);
                         
@@ -976,7 +998,7 @@ export async function POST(request: NextRequest) {
                         const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
                         for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
                             const chunk = compSources.slice(i, i + CHUNK_SIZE);
-                            sendProgress(controller, encoder, 'translating', `Translating properties ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${allComponentIds.size}...`);
+                            sendProgress(controller, encoder, 'translating', `Translating properties ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${totalComponentsInBatch}...`);
                             
                             const chunkTranslations = await translateBatch(chunk, {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
@@ -987,7 +1009,7 @@ export async function POST(request: NextRequest) {
                             
                             // Send progress update after each chunk
                             const progress = Math.min(i + CHUNK_SIZE, compSources.length);
-                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} properties in component ${processedComponents}/${allComponentIds.size}`);
+                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} properties in component ${processedComponents}/${totalComponentsInBatch}`);
                         }
 
                         // Build properties payload with translated text (HTML preserved by translator)
@@ -996,7 +1018,7 @@ export async function POST(request: NextRequest) {
                             text: compTranslations[idx] ?? p.text ?? '',
                         }));
 
-                        sendProgress(controller, encoder, 'updating', `Updating component ${processedComponents}/${allComponentIds.size} properties in Webflow...`);
+                        sendProgress(controller, encoder, 'updating', `Updating component ${processedComponents}/${totalComponentsInBatch} properties in Webflow...`);
                         
                         //console.log(`Updating ${propertiesPayload.length} properties for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
@@ -1021,7 +1043,7 @@ export async function POST(request: NextRequest) {
                     }
 
                     try {
-                        sendProgress(controller, encoder, 'translating', `Translating ${compTextNodes.length} text nodes in component ${processedComponents}/${allComponentIds.size}...`);
+                        sendProgress(controller, encoder, 'translating', `Translating ${compTextNodes.length} text nodes in component ${processedComponents}/${totalComponentsInBatch}...`);
                         
                         const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
                         
@@ -1030,7 +1052,7 @@ export async function POST(request: NextRequest) {
                         const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
                         for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
                             const chunk = compSources.slice(i, i + CHUNK_SIZE);
-                            sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${allComponentIds.size}...`);
+                            sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${totalComponentsInBatch}...`);
                             
                             const chunkTranslations = await translateBatch(chunk, {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
@@ -1041,7 +1063,7 @@ export async function POST(request: NextRequest) {
                             
                             // Send progress update after each chunk
                             const progress = Math.min(i + CHUNK_SIZE, compSources.length);
-                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} text nodes in component ${processedComponents}/${allComponentIds.size}`);
+                            sendProgress(controller, encoder, 'translating', `Translated ${progress}/${compSources.length} text nodes in component ${processedComponents}/${totalComponentsInBatch}`);
                         }
 
                         const getRootTag = (html?: string): string | undefined => {
@@ -1067,7 +1089,7 @@ export async function POST(request: NextRequest) {
                             text: ensureWrapped(compTranslations[idx] ?? compSources[idx] ?? '', getRootTag(n.html)),
                         }));
 
-                        sendProgress(controller, encoder, 'updating', `Updating component ${processedComponents}/${allComponentIds.size} in Webflow...`);
+                        sendProgress(controller, encoder, 'updating', `Updating component ${processedComponents}/${totalComponentsInBatch} in Webflow...`);
                         
                         //console.log(`Updating ${compUpdateNodes.length} DOM text nodes for component ${componentId} in locale ${locale.displayName}`);
                         await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
