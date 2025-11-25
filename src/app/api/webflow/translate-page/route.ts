@@ -343,6 +343,16 @@ async function fetchComponentProperties(
     const json: any = await response.json();
     //console.log(`      Raw API response for component ${componentId}:`, JSON.stringify(json, null, 2));
     
+    // Check if this is a library component - they cannot be localized
+    const isLibraryComponent = json?.componentMetadata?.isLibrary === true || 
+                               json?.isLibrary === true ||
+                               json?.componentMetadata?.type === 'library';
+    
+    if (isLibraryComponent) {
+        console.log(`  Skipping library component ${componentId} - cannot localize library components`);
+        return []; // Return empty array to skip this component
+    }
+    
     // Try multiple possible response structures
     let props: any[] = [];
     if (Array.isArray(json?.properties)) {
@@ -411,6 +421,11 @@ async function updateComponentProperties(
     });
     if (!response.ok) {
         const errorText = await response.text();
+        // Check if this is a library component error
+        if (errorText.includes('Cannot write localized properties for a library component')) {
+            console.log(`  Skipping library component ${componentId} - cannot localize library components`);
+            return; // Silently skip library components instead of throwing error
+        }
         throw new Error(`Failed to update component properties for locale ${localeId}: ${errorText}`);
     }
     const result: any = await response.json().catch(() => ({}));
