@@ -108,15 +108,17 @@ export async function translateBatch(
     // Process in batches of MAX_CONCURRENT
     for (let i = 0; i < texts.length; i += MAX_CONCURRENT) {
       const batch = texts.slice(i, i + MAX_CONCURRENT);
+      
+      // Log before starting batch
+      console.log(`  Translating batch ${Math.floor(i / MAX_CONCURRENT) + 1}/${Math.ceil(texts.length / MAX_CONCURRENT)} (${batch.length} texts)...`);
+      
       const batchResults = await Promise.all(
         batch.map(text => translateText(text, options))
       );
       results.push(...batchResults);
       
-      // Log progress for large batches
-      if (texts.length > MAX_CONCURRENT) {
-        console.log(`  Translated ${Math.min(i + MAX_CONCURRENT, texts.length)}/${texts.length} texts`);
-      }
+      // Log after completing batch
+      console.log(`  ✓ Completed batch ${Math.floor(i / MAX_CONCURRENT) + 1}/${Math.ceil(texts.length / MAX_CONCURRENT)}`);
     }
     
     console.log(`  ✓ Completed translation of ${results.length} texts`);
