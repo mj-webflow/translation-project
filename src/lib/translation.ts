@@ -97,38 +97,22 @@ export async function translateBatch(
   texts: string[],
   options: TranslationOptions
 ): Promise<string[]> {
-  const BATCH_SIZE = 20; // Increased from 10 to 20 for faster processing
-  const results: string[] = [];
+  // No batching needed since we're already scoped to 10 components per request
+  // Just translate all texts in parallel for maximum speed
+  console.log(`Starting translation of ${texts.length} texts in parallel...`);
   
-  console.log(`Starting translation of ${texts.length} texts in batches of ${BATCH_SIZE}...`);
-  
-  // Process in batches to avoid overwhelming the API
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
-    const totalBatches = Math.ceil(texts.length / BATCH_SIZE);
+  try {
+    const results = await Promise.all(
+      texts.map(text => translateText(text, options))
+    );
     
-    console.log(`  Translating batch ${batchNumber}/${totalBatches} (${batch.length} texts)...`);
-    
-    try {
-      const batchTranslations = await Promise.all(
-        batch.map(text => translateText(text, options))
-      );
-      results.push(...batchTranslations);
-      
-      // Reduced delay between batches for faster processing
-      if (i + BATCH_SIZE < texts.length) {
-        await new Promise(resolve => setTimeout(resolve, 200)); // Reduced from 500ms to 200ms
-      }
-    } catch (error) {
-      console.error(`  ❌ Batch ${batchNumber} failed:`, error);
-      // Use original texts as fallback for this batch
-      results.push(...batch);
-    }
+    console.log(`  ✓ Completed translation of ${results.length} texts`);
+    return results;
+  } catch (error) {
+    console.error(`  ❌ Translation failed:`, error);
+    // Use original texts as fallback
+    return texts;
   }
-  
-  console.log(`  ✓ Completed translation of ${results.length} texts`);
-  return results;
 }
 
 /**
