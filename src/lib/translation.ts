@@ -97,21 +97,34 @@ export async function translateBatch(
   texts: string[],
   options: TranslationOptions
 ): Promise<string[]> {
-  // No batching needed since we're already scoped to 10 components per request
-  // Just translate all texts in parallel for maximum speed
-  console.log(`Starting translation of ${texts.length} texts in parallel...`);
+  // Cloudflare Workers have a limit on concurrent HTTP requests (~50)
+  // Batch translations to avoid "stalled HTTP response" errors
+  const MAX_CONCURRENT = 50; // Stay under Cloudflare's limit
+  const results: string[] = [];
+  
+  console.log(`Starting translation of ${texts.length} texts (max ${MAX_CONCURRENT} concurrent)...`);
   
   try {
-    const results = await Promise.all(
-      texts.map(text => translateText(text, options))
-    );
+    // Process in batches of MAX_CONCURRENT
+    for (let i = 0; i < texts.length; i += MAX_CONCURRENT) {
+      const batch = texts.slice(i, i + MAX_CONCURRENT);
+      const batchResults = await Promise.all(
+        batch.map(text => translateText(text, options))
+      );
+      results.push(...batchResults);
+      
+      // Log progress for large batches
+      if (texts.length > MAX_CONCURRENT) {
+        console.log(`  Translated ${Math.min(i + MAX_CONCURRENT, texts.length)}/${texts.length} texts`);
+      }
+    }
     
     console.log(`  ✓ Completed translation of ${results.length} texts`);
     return results;
   } catch (error) {
     console.error(`  ❌ Translation failed:`, error);
-    // Use original texts as fallback
-    return texts;
+    // Use original texts as fallback for failed batch
+    return [...results, ...texts.slice(results.length)];
   }
 }
 

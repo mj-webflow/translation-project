@@ -707,6 +707,11 @@ export async function POST(request: NextRequest) {
 					)
 				);
 		console.log(`Found ${textNodes.length} text nodes to translate`);
+		
+		// Warn if there are too many text nodes (may cause timeout)
+		if (textNodes.length > 100 && !skipTextNodes) {
+			console.log(`⚠️  Warning: ${textNodes.length} text nodes may cause timeout. Consider translating components only on subsequent batches.`);
+		}
 
 		// ========================================
 		// COMPONENT DISCOVERY (Locale-independent)
@@ -1095,6 +1100,8 @@ export async function POST(request: NextRequest) {
                     nodesTranslated: textNodes.length,
                 })}\n\n`));
                 
+                // Small delay to ensure final message is sent before closing
+                await new Promise(resolve => setTimeout(resolve, 100));
                 controller.close();
 
             } catch (error) {
