@@ -114,7 +114,7 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
         if (hasMore) {
             console.log(`More nodes available, fetching next batch...`);
             // Add a small delay between pagination requests to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 200)); // Reduced from 500ms to 200ms
         }
     }
 
@@ -219,7 +219,7 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
         
         if (hasMore) {
             // Add a small delay between pagination requests to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 200)); // Reduced from 500ms to 200ms
         }
     }
 
@@ -510,7 +510,7 @@ async function updatePageContent(
     controller?: ReadableStreamDefaultController,
     encoder?: TextEncoder
 ): Promise<void> {
-    const NODE_BATCH_SIZE = 10; // Update 10 nodes at a time for more frequent progress updates and avoid timeouts
+    const NODE_BATCH_SIZE = 20; // Increased from 10 to 20 for faster updates
     
     // If nodes array is large, split into batches
     if (nodes.length > NODE_BATCH_SIZE) {
@@ -533,9 +533,9 @@ async function updatePageContent(
                 sendProgress(controller, encoder, 'updating', `Completed batch ${batchNum}/${totalBatches}`);
             }
             
-            // Small delay between batches
+            // Small delay between batches to avoid rate limiting
             if (i + NODE_BATCH_SIZE < nodes.length) {
-                await new Promise(resolve => setTimeout(resolve, 300));
+                await new Promise(resolve => setTimeout(resolve, 100)); // Reduced from 300ms to 100ms
             }
         }
         return;
@@ -772,8 +772,8 @@ export async function POST(request: NextRequest) {
                         // Send progress update before translation
                         sendProgress(controller, encoder, 'translating', `Starting translation of ${sources.length} text nodes...`);
                         
-                        // Translate in smaller chunks with progress updates
-                        const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
+                        // Translate in chunks with progress updates
+                        const CHUNK_SIZE = 10; // Balance between speed and progress updates
                         for (let i = 0; i < sources.length; i += CHUNK_SIZE) {
                             const chunk = sources.slice(i, i + CHUNK_SIZE);
                             sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, sources.length)} of ${sources.length}...`);
@@ -971,14 +971,22 @@ export async function POST(request: NextRequest) {
 
             let processedComponents = 0;
             const totalComponentsInBatch = componentArray.length;
-            for (const componentId of componentArray) {
+            
+            // Process components in parallel batches for better performance
+            const PARALLEL_COMPONENTS = 3; // Process 3 components at a time
+            for (let i = 0; i < componentArray.length; i += PARALLEL_COMPONENTS) {
+                const componentBatch = componentArray.slice(i, i + PARALLEL_COMPONENTS);
+                
+                // Process this batch of components in parallel
+                await Promise.all(componentBatch.map(async (componentId) => {
                 processedComponents++;
-                //console.log(`  Processing component ${componentId} for ${locale.displayName}... (${processedComponents}/${totalComponentsInBatch})`);
+                const currentComponentNum = processedComponents;
+                //console.log(`  Processing component ${componentId} for ${locale.displayName}... (${currentComponentNum}/${totalComponentsInBatch})`);
                 
                 // Send progress update for each component
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                     status: 'translating', 
-                    message: `Processing component ${processedComponents}/${totalComponentsInBatch}...`,
+                    message: `Processing component ${currentComponentNum}/${totalComponentsInBatch}...`,
                 })}\n\n`));
                 
                 // Try to fetch and translate component properties first
@@ -995,7 +1003,7 @@ export async function POST(request: NextRequest) {
                         
                         // Translate in chunks with progress updates for large components
                         const compTranslations: string[] = [];
-                        const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
+                        const CHUNK_SIZE = 10; // Balance between speed and progress updates
                         for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
                             const chunk = compSources.slice(i, i + CHUNK_SIZE);
                             sendProgress(controller, encoder, 'translating', `Translating properties ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${totalComponentsInBatch}...`);
@@ -1039,7 +1047,7 @@ export async function POST(request: NextRequest) {
                     
                     if (compTextNodes.length === 0) {
                         //console.log(`Component ${componentId} has no properties and no text nodes to translate`);
-                        continue;
+                        return; // Skip this component (inside Promise.all)
                     }
 
                     try {
@@ -1049,7 +1057,7 @@ export async function POST(request: NextRequest) {
                         
                         // Translate in chunks with progress updates for large components
                         const compTranslations: string[] = [];
-                        const CHUNK_SIZE = 5; // Smaller chunks for more frequent updates
+                        const CHUNK_SIZE = 10; // Balance between speed and progress updates
                         for (let i = 0; i < compSources.length; i += CHUNK_SIZE) {
                             const chunk = compSources.slice(i, i + CHUNK_SIZE);
                             sendProgress(controller, encoder, 'translating', `Translating text nodes ${i + 1}-${Math.min(i + CHUNK_SIZE, compSources.length)} of ${compSources.length} in component ${processedComponents}/${totalComponentsInBatch}...`);
@@ -1099,7 +1107,8 @@ export async function POST(request: NextRequest) {
                         console.log(`Failed text nodes:`, compTextNodes.map(n => `${n.nodeId}: ${((n.html || n.text) || '').substring(0, 100)}...`));
                     }
                 }
-            }
+                })); // End Promise.all for parallel component processing
+            } // End for loop for component batches
 
                 console.log(`Translation complete for page ${pageId} to locale ${locale.displayName}.`);
 

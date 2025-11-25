@@ -97,7 +97,7 @@ export async function translateBatch(
   texts: string[],
   options: TranslationOptions
 ): Promise<string[]> {
-  const BATCH_SIZE = 10; // Process 10 translations at a time
+  const BATCH_SIZE = 20; // Increased from 10 to 20 for faster processing
   const results: string[] = [];
   
   console.log(`Starting translation of ${texts.length} texts in batches of ${BATCH_SIZE}...`);
@@ -116,9 +116,9 @@ export async function translateBatch(
       );
       results.push(...batchTranslations);
       
-      // Add a small delay between batches to avoid rate limiting
+      // Reduced delay between batches for faster processing
       if (i + BATCH_SIZE < texts.length) {
-        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+        await new Promise(resolve => setTimeout(resolve, 200)); // Reduced from 500ms to 200ms
       }
     } catch (error) {
       console.error(`  ❌ Batch ${batchNumber} failed:`, error);
