@@ -115,10 +115,7 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
         // Continue if we haven't reached the total yet
         hasMore = domNodes.length > 0 && offset < total;
         
-        if (hasMore) {
-            // Add a small delay between pagination requests to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 200)); // Reduced from 500ms to 200ms
-        }
+        // No delay - fetch as fast as possible to stay under 30s timeout
     }
 
     const domNodes = allNodes;
@@ -219,10 +216,7 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
         // Continue if we haven't reached the total yet
         hasMore = nodes.length > 0 && offset < total;
         
-        if (hasMore) {
-            // Add a small delay between pagination requests to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 200)); // Reduced from 500ms to 200ms
-        }
+        // No delay - fetch as fast as possible to stay under 30s timeout
     }
 
     const nodes = allNodes;
@@ -976,12 +970,8 @@ export async function POST(request: NextRequest) {
             for (let i = 0; i < componentArray.length; i += PARALLEL_COMPONENTS) {
                 const componentBatch = componentArray.slice(i, i + PARALLEL_COMPONENTS);
                 
-                // Process this batch of components in parallel with staggered starts to reduce rate limiting
+                // Process this batch of components in parallel for maximum speed
                 await Promise.all(componentBatch.map(async (componentId, batchIndex) => {
-                // Stagger the start of each parallel request by 100ms to reduce API pressure
-                if (batchIndex > 0) {
-                    await new Promise(resolve => setTimeout(resolve, batchIndex * 100));
-                }
                 processedComponents++;
                 const currentComponentNum = processedComponents;
                 //console.log(`  Processing component ${componentId} for ${locale.displayName}... (${currentComponentNum}/${totalComponentsInBatch})`);
