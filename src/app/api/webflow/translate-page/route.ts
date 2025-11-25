@@ -115,16 +115,12 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
         // Continue if we haven't reached the total yet
         hasMore = domNodes.length > 0 && offset < total;
         
-        console.log(`Fetched ${domNodes.length} nodes (offset: ${offset - domNodes.length}, total: ${total}, fetched so far: ${allNodes.length})`);
-        
         if (hasMore) {
-            console.log(`More nodes available, fetching next batch...`);
             // Add a small delay between pagination requests to avoid rate limiting
             await new Promise(resolve => setTimeout(resolve, 200)); // Reduced from 500ms to 200ms
         }
     }
 
-    console.log(`Total nodes fetched: ${allNodes.length}`);
     const domNodes = allNodes;
 
     const stripHtml = (html: string): string => {
@@ -720,13 +716,6 @@ export async function POST(request: NextRequest) {
 					)
 				);
 		console.log(`Found ${textNodes.length} text nodes to translate`);
-		
-		// Log sample of text nodes to verify testimonials are included
-		//console.log('Sample text nodes (first 10):');
-		textNodes.slice(0, 10).forEach((node, idx) => {
-			const preview = (node.html || node.text || '').substring(0, 60);
-			console.log(`  ${idx + 1}. ${preview}...`);
-		});
 
 		// ========================================
 		// COMPONENT DISCOVERY (Locale-independent)
@@ -744,12 +733,10 @@ export async function POST(request: NextRequest) {
 		const componentsWithOverrides = allComponentInstances
 			.filter(n => n.propertyOverrides && n.propertyOverrides.length > 0);
 		
-		console.log(`Component analysis: ${allComponentInstances.length} total, ${componentsWithoutOverrides.length} without overrides (will translate), ${componentsWithOverrides.length} with overrides (skip)`);
-		
 		const topLevelComponentIds = Array.from(new Set(
 			componentsWithoutOverrides.map(n => n.componentId as string)
 		));
-		console.log(`Found ${topLevelComponentIds.length} unique component(s) to translate`);
+		console.log(`Page has ${allComponentInstances.length} components: ${topLevelComponentIds.length} to translate, ${componentsWithOverrides.length} with overrides (skip)`);
 
 		// Collect ALL component IDs from the page (including those with overrides AND slots) to find nested components
 		const allTopLevelComponentIds = Array.from(new Set(
@@ -789,19 +776,19 @@ export async function POST(request: NextRequest) {
 		// Traverse ALL top-level components to find nested components (even if parent has overrides)
 		for (const componentId of allTopLevelComponentIds) {
 			const nestedIds = await collectNestedWithCache(componentId);
-			console.log(`  Component ${componentId} contains ${nestedIds.length} nested component(s)`);
 			nestedIds.forEach(id => allComponentIds.add(id));
 		}
+		console.log(`Discovered ${allComponentIds.size} total component(s) including nested`);
 
 		// Apply component batch filtering if specified
 		let componentArray = Array.from(allComponentIds);
 		if (typeof componentBatchStart === 'number' && typeof componentBatchEnd === 'number') {
 			const originalCount = componentArray.length;
 			componentArray = componentArray.slice(componentBatchStart, componentBatchEnd);
-			console.log(`Component batch filter: processing components ${componentBatchStart}-${componentBatchEnd} (${componentArray.length} of ${originalCount} total)`);
+			console.log(`Translating component batch ${componentBatchStart}-${componentBatchEnd} (${componentArray.length} of ${originalCount})`);
+		} else {
+			console.log(`Translating ${componentArray.length} component(s)`);
 		}
-		
-		console.log(`Total components to translate: ${componentArray.length}`);
 
                 // Find the target locale
                 const locale = (locales.secondary || []).find((l: any) => l.id === targetLocaleId);

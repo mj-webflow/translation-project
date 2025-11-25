@@ -43,7 +43,7 @@ export default function WebflowPagesPage() {
   const [pageComponentsMap, setPageComponentsMap] = useState<Record<string, PageComponent[]>>({});
   const [loadingComponentsMap, setLoadingComponentsMap] = useState<Record<string, boolean>>({});
   const [selectedBatchMap, setSelectedBatchMap] = useState<Record<string, number>>({});
-  const COMPONENTS_PER_BATCH = 10;
+  const COMPONENTS_PER_BATCH = 5; // Reduced from 10 to 5 to avoid Cloudflare 30s timeout
   
   // Initialize Supabase and get user info
   useEffect(() => {
