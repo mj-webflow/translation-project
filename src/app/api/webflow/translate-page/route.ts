@@ -737,6 +737,44 @@ export async function POST(request: NextRequest) {
 			console.log(`  ${idx + 1}. ${preview}...`);
 		});
 
+		// ===== COMPONENT DISCOVERY (ONCE PER REQUEST, NOT PER LOCALE) =====
+		// Discover all components without overrides and nested components
+		const componentsWithoutOverrides = (pageContent.nodes || [])
+			.filter(n => n.type === 'component-instance' && (!n.propertyOverrides || n.propertyOverrides.length === 0) && typeof n.componentId === 'string');
+		
+		console.log(`Filtering components without overrides:`);
+		pageContent.nodes.filter(n => n.type === 'component-instance').forEach(comp => {
+			const hasOverrides = comp.propertyOverrides && comp.propertyOverrides.length > 0;
+			const hasComponentId = typeof comp.componentId === 'string';
+			console.log(`Component ${comp.componentId}: hasComponentId=${hasComponentId}, hasOverrides=${hasOverrides}, overrideLength=${comp.propertyOverrides?.length || 0}, willTranslate=${!hasOverrides && hasComponentId}`);
+		});
+		
+		const topLevelComponentIds = Array.from(new Set(
+			componentsWithoutOverrides.map(n => n.componentId as string)
+		));
+
+		// Collect ALL component IDs from the page (including those with overrides AND slots) to find nested components
+		const allTopLevelComponentIds = Array.from(new Set(
+			(pageContent.nodes || [])
+				.filter(n => (n.type === 'component-instance' || n.type === 'slot') && typeof n.componentId === 'string')
+				.map(n => n.componentId as string)
+		));
+
+		// Collect all component IDs including nested ones from ALL top-level components
+		const allComponentIds = new Set<string>();
+		for (const componentId of topLevelComponentIds) {
+			allComponentIds.add(componentId);
+		}
+		
+		// Traverse ALL top-level components to find nested components (even if parent has overrides)
+		for (const componentId of allTopLevelComponentIds) {
+			const nestedIds = await collectNestedComponentIds(siteId, componentId, token, branchId);
+			nestedIds.forEach(id => allComponentIds.add(id));
+		}
+
+		console.log(`Found ${allComponentIds.size} unique component(s) to translate (including nested)`);
+		// ===== END COMPONENT DISCOVERY =====
+
                 // Find the target locale
                 const locale = (locales.secondary || []).find((l: any) => l.id === targetLocaleId);
                 if (!locale) {
@@ -898,49 +936,7 @@ export async function POST(request: NextRequest) {
                 }
             }
 
-            // Additionally, for component instances with no property overrides, update component definition PROPERTIES for this locale via Data API
-            const componentsWithoutOverrides = (pageContent.nodes || [])
-                .filter(n => n.type === 'component-instance' && (!n.propertyOverrides || n.propertyOverrides.length === 0) && typeof n.componentId === 'string');
-            
-            console.log(`Filtering components without overrides for ${locale.displayName}:`);
-            pageContent.nodes.filter(n => n.type === 'component-instance').forEach(comp => {
-                const hasOverrides = comp.propertyOverrides && comp.propertyOverrides.length > 0;
-                const hasComponentId = typeof comp.componentId === 'string';
-                console.log(`Component ${comp.componentId}: hasComponentId=${hasComponentId}, hasOverrides=${hasOverrides}, overrideLength=${comp.propertyOverrides?.length || 0}, willTranslate=${!hasOverrides && hasComponentId}`);
-            });
-            
-            const topLevelComponentIds = Array.from(new Set(
-                componentsWithoutOverrides.map(n => n.componentId as string)
-            ));
-            //console.log(`Found ${topLevelComponentIds.length} top-level component(s) without overrides for ${locale.displayName}:`, topLevelComponentIds);
-
-            // Collect ALL component IDs from the page (including those with overrides AND slots) to find nested components
-            const allTopLevelComponentIds = Array.from(new Set(
-                (pageContent.nodes || [])
-                    .filter(n => (n.type === 'component-instance' || n.type === 'slot') && typeof n.componentId === 'string')
-                    .map(n => n.componentId as string)
-            ));
-            //console.log(`Found ${allTopLevelComponentIds.length} total top-level component(s) (with and without overrides, including slots) for nested traversal`);
-
-            // Collect all component IDs including nested ones from ALL top-level components
-            const allComponentIds = new Set<string>();
-            for (const componentId of topLevelComponentIds) {
-                allComponentIds.add(componentId);
-            }
-            
-            // Traverse ALL top-level components to find nested components (even if parent has overrides)
-            for (const componentId of allTopLevelComponentIds) {
-                //console.log(`  Traversing component ${componentId} for nested components...`);
-                // Recursively collect nested component IDs
-                const nestedIds = await collectNestedComponentIds(siteId, componentId, token, branchId);
-                //console.log(`    Found ${nestedIds.length} nested component(s) inside ${componentId}:`, nestedIds);
-                nestedIds.forEach(id => allComponentIds.add(id));
-            }
-
-            //console.log(`Found ${allComponentIds.size} component(s) to translate (including nested) for ${locale.displayName}`);
-            //console.log(`All component IDs to translate:`, Array.from(allComponentIds));
-
-            // Send progress update for component processing
+            // Send progress update for component processing (using pre-discovered allComponentIds)
             if (allComponentIds.size > 0) {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                     status: 'translating', 
