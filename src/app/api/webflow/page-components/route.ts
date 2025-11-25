@@ -47,48 +47,42 @@ export async function GET(request: NextRequest) {
             console.log('Sample component instance:', JSON.stringify(componentInstances[0], null, 2));
         }
         
-        // Fetch component metadata for each unique component ID to get names
-        const uniqueComponentIds = new Set<string>();
-        componentInstances.forEach((comp: any) => {
-            if (comp.componentId) {
-                uniqueComponentIds.add(comp.componentId);
-            }
-        });
-
-        // Fetch component names
+        // Fetch all components from the site to get their names
         const componentNames = new Map<string, string>();
-        for (const componentId of uniqueComponentIds) {
-            try {
-                const compUrl = new URL(`https://api.webflow.com/v2/sites/${siteId}/components/${componentId}`);
-                if (branchId) compUrl.searchParams.set('branchId', branchId);
-                
-                const compResponse = await fetch(compUrl.toString(), {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'accept-version': '1.0.0',
-                    },
-                });
+        try {
+            const componentsUrl = new URL(`https://api.webflow.com/v2/sites/${siteId}/components`);
+            if (branchId) componentsUrl.searchParams.set('branchId', branchId);
+            
+            const componentsResponse = await fetch(componentsUrl.toString(), {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'accept-version': '1.0.0',
+                },
+            });
 
-                if (compResponse.ok) {
-                    const compData: any = await compResponse.json();
-                    console.log(`Component ${componentId} data:`, JSON.stringify(compData, null, 2));
-                    const name = compData?.displayName || compData?.name || compData?.componentMetadata?.displayName || compData?.componentMetadata?.name || `Component ${componentId.slice(0, 8)}`;
-                    componentNames.set(componentId, name);
-                } else {
-                    console.error(`Failed to fetch component ${componentId}: ${compResponse.status}`);
-                    componentNames.set(componentId, `Component ${componentId.slice(0, 8)}`);
+            if (componentsResponse.ok) {
+                const componentsData: any = await componentsResponse.json();
+                console.log('Components API response:', JSON.stringify(componentsData, null, 2));
+                
+                // Map component IDs to their display names
+                if (componentsData.components && Array.isArray(componentsData.components)) {
+                    componentsData.components.forEach((comp: any) => {
+                        const name = comp.displayName || comp.name || `Component ${comp.id?.slice(0, 8) || 'Unknown'}`;
+                        componentNames.set(comp.id, name);
+                    });
                 }
-            } catch (error) {
-                console.error(`Failed to fetch component ${componentId}:`, error);
-                componentNames.set(componentId, `Component ${componentId.slice(0, 8)}`);
+            } else {
+                console.error(`Failed to fetch components list: ${componentsResponse.status}`);
             }
+        } catch (error) {
+            console.error('Failed to fetch components list:', error);
         }
 
         // Build component list with names
         const components = componentInstances.map((comp: any, index: number) => ({
             nodeId: comp.nodeId,
             componentId: comp.componentId,
-            name: componentNames.get(comp.componentId) || `Component ${index + 1}`,
+            name: componentNames.get(comp.componentId) || comp.displayName || `Component ${comp.componentId?.slice(0, 8) || index + 1}`,
             hasOverrides: !!(comp.propertyOverrides && comp.propertyOverrides.length > 0),
             overrideCount: comp.propertyOverrides?.length || 0,
         }));
