@@ -41,6 +41,12 @@ export async function GET(request: NextRequest) {
         // Extract all component instances
         const componentInstances = pageContent.nodes?.filter((n: any) => n.type === 'component-instance') || [];
         
+        // Log first component instance to see available fields
+        if (componentInstances.length > 0) {
+            console.log('Sample component instance fields:', Object.keys(componentInstances[0]));
+            console.log('Sample component instance:', JSON.stringify(componentInstances[0], null, 2));
+        }
+        
         // Fetch component metadata for each unique component ID to get names
         const uniqueComponentIds = new Set<string>();
         componentInstances.forEach((comp: any) => {
@@ -65,9 +71,11 @@ export async function GET(request: NextRequest) {
 
                 if (compResponse.ok) {
                     const compData: any = await compResponse.json();
-                    const name = compData?.displayName || compData?.name || compData?.componentMetadata?.displayName || `Component ${componentId.slice(0, 8)}`;
+                    console.log(`Component ${componentId} data:`, JSON.stringify(compData, null, 2));
+                    const name = compData?.displayName || compData?.name || compData?.componentMetadata?.displayName || compData?.componentMetadata?.name || `Component ${componentId.slice(0, 8)}`;
                     componentNames.set(componentId, name);
                 } else {
+                    console.error(`Failed to fetch component ${componentId}: ${compResponse.status}`);
                     componentNames.set(componentId, `Component ${componentId.slice(0, 8)}`);
                 }
             } catch (error) {
