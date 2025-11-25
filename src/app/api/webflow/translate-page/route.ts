@@ -506,9 +506,11 @@ async function updatePageContent(
     localeId: string,
     nodes: UpdateNode[],
     token: string,
-    branchId?: string | null
+    branchId?: string | null,
+    controller?: ReadableStreamDefaultController,
+    encoder?: TextEncoder
 ): Promise<void> {
-    const NODE_BATCH_SIZE = 50; // Update 50 nodes at a time to avoid payload size limits
+    const NODE_BATCH_SIZE = 10; // Update 10 nodes at a time for more frequent progress updates and avoid timeouts
     
     // If nodes array is large, split into batches
     if (nodes.length > NODE_BATCH_SIZE) {
@@ -519,8 +521,17 @@ async function updatePageContent(
             const batchNum = Math.floor(i / NODE_BATCH_SIZE) + 1;
             const totalBatches = Math.ceil(nodes.length / NODE_BATCH_SIZE);
             
-            //console.log(`Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes)...`);
+            // Send progress update before each batch
+            if (controller && encoder) {
+                sendProgress(controller, encoder, 'updating', `Updating batch ${batchNum}/${totalBatches} (${batch.length} nodes) in Webflow...`);
+            }
+            
             await updatePageContentSingle(pageId, localeId, batch, token, branchId);
+            
+            // Send progress update after each batch
+            if (controller && encoder) {
+                sendProgress(controller, encoder, 'updating', `Completed batch ${batchNum}/${totalBatches}`);
+            }
             
             // Small delay between batches
             if (i + NODE_BATCH_SIZE < nodes.length) {
@@ -870,7 +881,7 @@ export async function POST(request: NextRequest) {
                 })}\n\n`));
                 
                 try {
-                    await updatePageContent(pageId, locale.id, allUpdates, token, branchId);
+                    await updatePageContent(pageId, locale.id, allUpdates, token, branchId, controller, encoder);
                     
                     // Send progress update after updating
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
