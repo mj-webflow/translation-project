@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 
 export default function Home() {
   useEffect(() => {
+    // Redirect to login page
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
     window.location.href = `${basePath}/login`;
   }, []);

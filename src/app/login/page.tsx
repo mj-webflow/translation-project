@@ -30,12 +30,6 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate @webflow.com domain before attempting login
-    if (!email.endsWith('@webflow.com')) {
-      setError('Access restricted to @webflow.com email addresses only.');
-      return;
-    }
-    
     setLoading(true);
     setError('');
     setMessage('');
@@ -64,7 +58,7 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        // Double-check email domain (belt and suspenders approach)
+        // Check if email ends with @webflow.com
         if (!data.user.email?.endsWith('@webflow.com')) {
           await client.auth.signOut();
           setError('Access restricted to @webflow.com email addresses only.');
@@ -89,41 +83,24 @@ export default function LoginPage() {
       return;
     }
 
-    // Validate @webflow.com domain
-    if (!email.endsWith('@webflow.com')) {
-      setError('Access restricted to @webflow.com email addresses only.');
-      return;
-    }
-
     setLoading(true);
     setError('');
     setMessage('');
 
     try {
       // Get or create Supabase client
-      console.log('Getting Supabase client for password reset...');
       const client = supabase || await createClient();
       if (!client) {
         setError('Authentication service is not available. Please refresh the page.');
         return;
       }
-      console.log('Supabase client ready:', !!client);
       
-      // Construct the redirect URL - must match exactly what's in Supabase redirect URLs
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
-      const redirectUrl = `${window.location.origin}${basePath}/reset-password`;
-      
-      console.log('Password reset redirect URL:', redirectUrl);
-      console.log('Calling resetPasswordForEmail with email:', email);
-      
-      const { error, data } = await client.auth.resetPasswordForEmail(email, {
-        redirectTo: redirectUrl,
+      const { error } = await client.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}${basePath}/reset-password`,
       });
-      
-      console.log('resetPasswordForEmail response:', { error, data });
 
       if (error) {
-        console.error('Password reset error details:', error);
         setError(error.message);
       } else {
         setMessage('Password reset email sent! Check your inbox.');
@@ -179,8 +156,6 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                pattern=".*@webflow\.com$"
-                title="Please use a @webflow.com email address"
                 className="w-full px-4 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 placeholder-zinc-500 dark:placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="you@webflow.com"
               />

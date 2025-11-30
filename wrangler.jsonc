@@ -12,8 +12,5 @@
     },
     "observability": {
         "enabled": true
-    },
-    "limits": {
-        "cpu_ms": 600000, // setting to 15 seconds to test hitting worker timeout
-      }
+    }
 }

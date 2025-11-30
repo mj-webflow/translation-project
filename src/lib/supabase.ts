@@ -29,26 +29,18 @@ export async function createClient() {
 
   // Return existing instance if available
   if (clientInstance) {
-    console.log('Returning existing Supabase client instance');
     return clientInstance;
   }
 
   // Get configuration from API (reads server-side env vars at runtime)
-  console.log('Fetching Supabase config from /api/config...');
   const { supabaseUrl, supabaseAnonKey } = await getConfig();
-  console.log('Supabase config received:', { 
-    supabaseUrl, 
-    anonKeyLength: supabaseAnonKey?.length 
-  });
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Missing Supabase environment variables. Please set SUPABASE_URL and SUPABASE_ANON_KEY');
   }
 
   // Create and cache the client instance
-  console.log('Creating new Supabase client instance...');
   clientInstance = createBrowserClient(supabaseUrl, supabaseAnonKey);
-  console.log('Supabase client created successfully');
   
   return clientInstance;
 }
