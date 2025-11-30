@@ -97,7 +97,7 @@ export async function translateBatch(
   texts: string[],
   options: TranslationOptions
 ): Promise<string[]> {
-  const BATCH_SIZE = 10; // Process 10 translations at a time
+  const BATCH_SIZE = 30; // Process 30 translations at a time for better performance
   
   // Deduplicate texts to avoid translating the same text multiple times
   const uniqueTexts = Array.from(new Set(texts));
@@ -127,11 +127,6 @@ export async function translateBatch(
       batch.forEach((text, idx) => {
         translationMap.set(text, batchTranslations[idx]);
       });
-      
-      // Add a small delay between batches to avoid rate limiting
-      if (i + BATCH_SIZE < uniqueTexts.length) {
-        await new Promise(resolve => setTimeout(resolve, 300)); // 300ms delay
-      }
     } catch (error) {
       console.error(`Batch ${batchNumber}/${totalBatches} failed:`, error);
       // Use original texts as fallback for this batch

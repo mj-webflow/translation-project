@@ -663,12 +663,22 @@ export async function POST(request: NextRequest) {
 		}
 
 				// Filter text nodes only (ensure type and either text/html are present)
-				const textNodes = pageContent.nodes.filter(node =>
-					node.type === 'text' && (
-						(typeof node.text === 'string' && node.text.trim().length > 0) ||
-						(typeof node.html === 'string' && node.html.trim().length > 0)
-					)
-				);
+				// Also filter out nodes with minimal content (< 3 chars after stripping HTML)
+				const textNodes = pageContent.nodes.filter(node => {
+					if (node.type !== 'text') return false;
+					
+					// Get the actual text content
+					let content = '';
+					if (typeof node.html === 'string' && node.html.trim().length > 0) {
+						// Strip HTML tags to get actual text length
+						content = node.html.replace(/<[^>]*>/g, '').trim();
+					} else if (typeof node.text === 'string') {
+						content = node.text.trim();
+					}
+					
+					// Filter out empty or very short content (punctuation, single chars, etc)
+					return content.length >= 3;
+				});
 		console.log(`Found ${textNodes.length} text nodes to translate`);
 
 		// Create a cache for component content to avoid redundant API calls
@@ -855,92 +865,97 @@ export async function POST(request: NextRequest) {
                 })}\n\n`));
             }
 
+            // Process components in parallel batches for better performance
+            const PARALLEL_COMPONENTS = 5; // Process 5 components at a time
+            const componentArray = Array.from(allComponentIds);
             let processedComponents = 0;
-            for (const componentId of allComponentIds) {
-                processedComponents++;
+            
+            for (let i = 0; i < componentArray.length; i += PARALLEL_COMPONENTS) {
+                const batch = componentArray.slice(i, i + PARALLEL_COMPONENTS);
                 
-                // Send progress update for each component
+                // Send progress update for batch
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                     status: 'translating', 
-                    message: `Processing component ${processedComponents}/${allComponentIds.size}...`,
+                    message: `Processing components ${i + 1}-${Math.min(i + batch.length, componentArray.length)} of ${componentArray.length}...`,
                 })}\n\n`));
                 
-                // Try to fetch and translate component properties first
-                const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
-                const translatableProps = properties.filter(p => typeof p.text === 'string' && p.text.trim().length > 0);
+                // Process batch in parallel
+                await Promise.all(batch.map(async (componentId) => {
+                    try {
+                        // Try to fetch and translate component properties first
+                        const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
+                        const translatableProps = properties.filter(p => typeof p.text === 'string' && p.text.trim().length > 0);
+                        
+                        if (translatableProps.length > 0) {
+                            const compSources = translatableProps.map(p => p.text as string);
+                            const compTranslations = await translateBatch(compSources, {
+                                targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                                sourceLanguage: 'en',
+                                context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                            });
+
+                            // Build properties payload with translated text (HTML preserved by translator)
+                            const propertiesPayload = translatableProps.map((p, idx) => ({
+                                propertyId: p.propertyId,
+                                text: compTranslations[idx] ?? p.text ?? '',
+                            }));
+
+                            await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
+                        } else {
+                            // If no properties, try to translate DOM text nodes
+                            // Use cache to avoid redundant API calls
+                            if (!componentContentCache.has(componentId)) {
+                                const content = await fetchComponentContent(siteId, componentId, token, branchId);
+                                componentContentCache.set(componentId, content);
+                            }
+                            const comp = componentContentCache.get(componentId)!;
+                            const compTextNodes = comp.nodes.filter(n => n.type === 'text' && (
+                                (typeof n.html === 'string' && n.html.trim().length > 0) ||
+                                (typeof n.text === 'string' && n.text.trim().length > 0)
+                            ));
+                            
+                            if (compTextNodes.length === 0) {
+                                return;
+                            }
+
+                            const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
+                            const compTranslations = await translateBatch(compSources, {
+                                targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                                sourceLanguage: 'en',
+                                context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                            });
+
+                            const getRootTag = (html?: string): string | undefined => {
+                                if (!html || typeof html !== 'string') return undefined;
+                                const m = html.trim().match(/^<([a-z0-9-]+)\b/i);
+                                return m ? m[1].toLowerCase() : undefined;
+                            };
+
+                            const escapeHtml = (str: string): string => str
+                                .replace(/&/g, '&amp;')
+                                .replace(/</g, '&lt;')
+                                .replace(/>/g, '&gt;');
+
+                            const ensureWrapped = (content: string, tag?: string): string => {
+                                const trimmed = (content || '').trim();
+                                if (!tag) return trimmed;
+                                if (trimmed.startsWith('<')) return trimmed;
+                                return `<${tag}>${escapeHtml(trimmed)}</${tag}>`;
+                            };
+
+                            const compUpdateNodes = compTextNodes.map((n, idx) => ({
+                                nodeId: n.nodeId,
+                                text: ensureWrapped(compTranslations[idx] ?? compSources[idx] ?? '', getRootTag(n.html)),
+                            }));
+
+                            await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
+                        }
+                    } catch (error) {
+                        console.error(`Failed to translate/update component ${componentId} for ${locale.displayName}:`, error);
+                    }
+                }));
                 
-                if (translatableProps.length > 0) {
-                    try {
-                        const compSources = translatableProps.map(p => p.text as string);
-                        const compTranslations = await translateBatch(compSources, {
-                            targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                            sourceLanguage: 'en',
-                            context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
-                        });
-
-                        // Build properties payload with translated text (HTML preserved by translator)
-                        const propertiesPayload = translatableProps.map((p, idx) => ({
-                            propertyId: p.propertyId,
-                            text: compTranslations[idx] ?? p.text ?? '',
-                        }));
-
-                        await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
-                    } catch (error) {
-                        console.error(`Failed to translate/update component ${componentId} properties for ${locale.displayName}:`, error);
-                    }
-                } else {
-                    // If no properties, try to translate DOM text nodes
-                    // Use cache to avoid redundant API calls
-                    if (!componentContentCache.has(componentId)) {
-                        const content = await fetchComponentContent(siteId, componentId, token, branchId);
-                        componentContentCache.set(componentId, content);
-                    }
-                    const comp = componentContentCache.get(componentId)!;
-                    const compTextNodes = comp.nodes.filter(n => n.type === 'text' && (
-                        (typeof n.html === 'string' && n.html.trim().length > 0) ||
-                        (typeof n.text === 'string' && n.text.trim().length > 0)
-                    ));
-                    
-                    if (compTextNodes.length === 0) {
-                        continue;
-                    }
-
-                    try {
-                        const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
-                        const compTranslations = await translateBatch(compSources, {
-                            targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                            sourceLanguage: 'en',
-                            context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
-                        });
-
-                        const getRootTag = (html?: string): string | undefined => {
-                            if (!html || typeof html !== 'string') return undefined;
-                            const m = html.trim().match(/^<([a-z0-9-]+)\b/i);
-                            return m ? m[1].toLowerCase() : undefined;
-                        };
-
-                        const escapeHtml = (str: string): string => str
-                            .replace(/&/g, '&amp;')
-                            .replace(/</g, '&lt;')
-                            .replace(/>/g, '&gt;');
-
-                        const ensureWrapped = (content: string, tag?: string): string => {
-                            const trimmed = (content || '').trim();
-                            if (!tag) return trimmed;
-                            if (trimmed.startsWith('<')) return trimmed;
-                            return `<${tag}>${escapeHtml(trimmed)}</${tag}>`;
-                        };
-
-                        const compUpdateNodes = compTextNodes.map((n, idx) => ({
-                            nodeId: n.nodeId,
-                            text: ensureWrapped(compTranslations[idx] ?? compSources[idx] ?? '', getRootTag(n.html)),
-                        }));
-
-                        await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
-                    } catch (error) {
-                        console.error(`Failed to translate/update component ${componentId} DOM text nodes for ${locale.displayName}:`, error);
-                    }
-                }
+                processedComponents += batch.length;
             }
 
                 // Send final success message
