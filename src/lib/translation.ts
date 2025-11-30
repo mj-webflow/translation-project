@@ -127,11 +127,6 @@ export async function translateBatch(
       batch.forEach((text, idx) => {
         translationMap.set(text, batchTranslations[idx]);
       });
-      
-      // Small delay between batches to avoid rate limiting (only if more batches remain)
-      if (i + BATCH_SIZE < uniqueTexts.length) {
-        await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay (reduced from 300ms)
-      }
     } catch (error) {
       console.error(`Batch ${batchNumber}/${totalBatches} failed:`, error);
       // Use original texts as fallback for this batch
