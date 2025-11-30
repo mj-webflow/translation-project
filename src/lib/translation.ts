@@ -98,36 +98,53 @@ export async function translateBatch(
   options: TranslationOptions
 ): Promise<string[]> {
   const BATCH_SIZE = 10; // Process 10 translations at a time
-  const results: string[] = [];
   
-  console.log(`Starting translation of ${texts.length} texts in batches of ${BATCH_SIZE}...`);
+  // Deduplicate texts to avoid translating the same text multiple times
+  const uniqueTexts = Array.from(new Set(texts));
+  const hasDuplicates = uniqueTexts.length < texts.length;
   
-  // Process in batches to avoid overwhelming the API
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
+  if (hasDuplicates) {
+    console.log(`Deduplicating: ${texts.length} texts -> ${uniqueTexts.length} unique texts (${texts.length - uniqueTexts.length} duplicates)`);
+  } else {
+    console.log(`Starting translation of ${texts.length} texts in batches of ${BATCH_SIZE}...`);
+  }
+  
+  // Create a map to store translations
+  const translationMap = new Map<string, string>();
+  
+  // Process unique texts in batches
+  for (let i = 0; i < uniqueTexts.length; i += BATCH_SIZE) {
+    const batch = uniqueTexts.slice(i, i + BATCH_SIZE);
     const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
-    const totalBatches = Math.ceil(texts.length / BATCH_SIZE);
-    
-    console.log(`  Translating batch ${batchNumber}/${totalBatches} (${batch.length} texts)...`);
+    const totalBatches = Math.ceil(uniqueTexts.length / BATCH_SIZE);
     
     try {
       const batchTranslations = await Promise.all(
         batch.map(text => translateText(text, options))
       );
-      results.push(...batchTranslations);
+      
+      // Store translations in map
+      batch.forEach((text, idx) => {
+        translationMap.set(text, batchTranslations[idx]);
+      });
       
       // Add a small delay between batches to avoid rate limiting
-      if (i + BATCH_SIZE < texts.length) {
-        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+      if (i + BATCH_SIZE < uniqueTexts.length) {
+        await new Promise(resolve => setTimeout(resolve, 300)); // 300ms delay
       }
     } catch (error) {
-      console.error(`  ❌ Batch ${batchNumber} failed:`, error);
+      console.error(`Batch ${batchNumber}/${totalBatches} failed:`, error);
       // Use original texts as fallback for this batch
-      results.push(...batch);
+      batch.forEach(text => {
+        translationMap.set(text, text);
+      });
     }
   }
   
-  console.log(`  ✓ Completed translation of ${results.length} texts`);
+  // Map back to original order (including duplicates)
+  const results = texts.map(text => translationMap.get(text) || text);
+  
+  console.log(`Completed translation of ${results.length} texts (${uniqueTexts.length} unique)`);
   return results;
 }
 
@@ -209,19 +226,44 @@ async function translatePlainText(
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      console.error('OpenAI API error:', error);
-      throw new Error(`Translation API failed: ${response.status}`);
+      const errorText = await response.text();
+      console.error('OpenAI API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      });
+      
+      // If unauthorized, provide helpful message
+      if (response.status === 401) {
+        throw new Error('OpenAI API key is invalid or expired. Please update OPENAI_API_KEY in .env.local');
+      }
+      
+      throw new Error(`Translation API failed: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
-    const translatedText: string | undefined = data?.choices?.[0]?.message?.content;
+    
+    // Check if response has the expected structure
+    if (!data?.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      console.error('OpenAI response missing choices array:', JSON.stringify(data, null, 2));
+      throw new Error('OpenAI response missing choices array');
+    }
+    
+    const translatedText: string | undefined = data.choices[0]?.message?.content;
 
     if (!translatedText || typeof translatedText !== 'string') {
-      console.error('Unexpected OpenAI response format:', data);
-      throw new Error('Unexpected translation response');
+      console.error('OpenAI response missing content:', {
+        hasChoices: !!data?.choices,
+        choicesLength: data?.choices?.length,
+        firstChoice: data?.choices?.[0],
+        hasMessage: !!data?.choices?.[0]?.message,
+        hasContent: !!data?.choices?.[0]?.message?.content,
+        contentType: typeof data?.choices?.[0]?.message?.content,
+        fullData: JSON.stringify(data, null, 2)
+      });
+      throw new Error('OpenAI response missing translated content');
     }
-    console.log('translatedText', translatedText);
+    
     return translatedText.trim();
   } catch (error) {
     console.error('Translation error:', error);

@@ -114,9 +114,9 @@ export default function WebflowPagesPage() {
     .filter((page) => {
       if (!searchQuery) return true;
       return (
-        page.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        page.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        page.publishedPath.toLowerCase().includes(searchQuery.toLowerCase())
+        page.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        page.slug?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        page.publishedPath?.toLowerCase().includes(searchQuery.toLowerCase())
       );
     });
 
