@@ -956,6 +956,11 @@ export async function POST(request: NextRequest) {
                 }));
                 
                 processedComponents += batch.length;
+                
+                // Small delay between parallel batches to avoid overwhelming APIs
+                if (i + PARALLEL_COMPONENTS < componentArray.length) {
+                    await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay between component batches
+                }
             }
 
                 // Send final success message
