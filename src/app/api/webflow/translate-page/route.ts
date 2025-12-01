@@ -302,11 +302,20 @@ async function collectNestedComponentIds(
     const nestedIds: string[] = [];
 
     for (const node of componentContent.nodes) {
+        // Check for component instances (direct components)
         if (node.type === 'component-instance' && node.componentId) {
             nestedIds.push(node.componentId);
             // Recursively collect from nested component
             const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, cache);
             nestedIds.push(...deeperIds);
+        }
+        // Check for slots (which can contain components)
+        // Slots themselves don't have a componentId, but we need to fetch their content
+        // to find components nested inside them
+        else if (node.type === 'slot' && node.nodeId) {
+            // Slots are part of the component's DOM, their content is already in componentContent.nodes
+            // So we don't need to fetch them separately, just continue iterating
+            // The components inside slots will be found in subsequent iterations
         }
     }
 
@@ -686,7 +695,7 @@ export async function POST(request: NextRequest) {
                 const token = overrideToken || WEBFLOW_API_TOKEN || '';
 
                 const body = await request.json();
-                const { pageId, targetLocaleId } = body;
+                const { pageId, targetLocaleIds } = body;
 
                 if (!pageId) {
                     sendSSE(controller, encoder, { error: 'Page ID is required' });
@@ -695,8 +704,8 @@ export async function POST(request: NextRequest) {
                     return;
                 }
 
-                if (!targetLocaleId) {
-                    sendSSE(controller, encoder, { error: 'Target locale ID is required' });
+                if (!targetLocaleIds || !Array.isArray(targetLocaleIds) || targetLocaleIds.length === 0) {
+                    sendSSE(controller, encoder, { error: 'At least one target locale ID is required' });
                     controller.close();
                     keepAlive.stop();
                     return;
@@ -779,29 +788,41 @@ export async function POST(request: NextRequest) {
 
 		// Collect all component IDs including nested ones from ALL top-level components
 		const allComponentIds = new Set<string>();
+		
+		// Add all top-level components without overrides
 		for (const componentId of topLevelComponentIds) {
 			allComponentIds.add(componentId);
 		}
 		
 		// Traverse ALL top-level components to find nested components (even if parent has overrides)
+		// This ensures we find components nested in slots, nested in other components, etc.
 		for (const componentId of allTopLevelComponentIds) {
 			const nestedIds = await collectNestedComponentIds(siteId, componentId, token, branchId, new Set(), componentContentCache);
+			if (nestedIds.length > 0) {
+				console.log(`Component ${componentId} contains ${nestedIds.length} nested component(s): ${nestedIds.join(', ')}`);
+			}
+			// Add all discovered nested components
 			nestedIds.forEach(id => allComponentIds.add(id));
 		}
 
 		console.log(`Component analysis: ${allComponentInstances.length} total, ${componentsWithoutOverrides.length} without overrides, ${allComponentIds.size} unique (including nested)`);
+		console.log(`All component IDs to translate:`, Array.from(allComponentIds));
 		// ===== END COMPONENT DISCOVERY =====
 
-                // Find the target locale
-                const locale = (locales.secondary || []).find((l: any) => l.id === targetLocaleId);
-                if (!locale) {
-                    sendSSE(controller, encoder, { 
-                        error: `Locale ${targetLocaleId} not found` 
-                    });
-                    controller.close();
-                    keepAlive.stop();
-                    return;
-                }
+                // Process each locale
+                for (let localeIndex = 0; localeIndex < targetLocaleIds.length; localeIndex++) {
+                    const targetLocaleId = targetLocaleIds[localeIndex];
+                    
+                    // Find the target locale
+                    const locale = (locales.secondary || []).find((l: any) => l.id === targetLocaleId);
+                    if (!locale) {
+                        sendSSE(controller, encoder, { 
+                            error: `Locale ${targetLocaleId} not found` 
+                        });
+                        continue; // Skip to next locale
+                    }
+                    
+                    console.log(`\n========== Processing locale ${localeIndex + 1}/${targetLocaleIds.length}: ${locale.displayName} ==========`);
 
                 // Send progress update
                 sendSSE(controller, encoder, { 
@@ -982,6 +1003,11 @@ export async function POST(request: NextRequest) {
                         const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
                         const translatableProps = properties.filter(p => typeof p.text === 'string' && p.text.trim().length > 0);
                         
+                        console.log(`[Component ${componentId}] Found ${properties.length} total properties, ${translatableProps.length} translatable`);
+                        if (translatableProps.length > 0) {
+                            console.log(`[Component ${componentId}] Translatable properties:`, translatableProps.map(p => ({ id: p.propertyId, text: p.text?.substring(0, 50) })));
+                        }
+                        
                         // Translate component properties if they exist
                         if (translatableProps.length > 0) {
                             const compSources = translatableProps.map(p => p.text as string);
@@ -1079,15 +1105,20 @@ export async function POST(request: NextRequest) {
                 processedComponents += batch.length;
             }
 
-                // Send final success message
-                sendSSE(controller, encoder, {
-                    success: true,
-                    pageId,
-                    localeId: locale.id,
-                    localeName: locale.displayName,
-                    nodesTranslated: textNodes.length,
-                });
+                    // Send success message for this locale
+                    sendSSE(controller, encoder, {
+                        success: true,
+                        pageId,
+                        localeId: locale.id,
+                        localeName: locale.displayName,
+                        nodesTranslated: textNodes.length,
+                    });
+                    
+                    console.log(`========== Completed locale ${localeIndex + 1}/${targetLocaleIds.length}: ${locale.displayName} ==========\n`);
+                } // End of locale loop
                 
+                // All locales processed successfully
+                console.log(`All ${targetLocaleIds.length} locale(s) processed successfully`);
                 controller.close();
                 keepAlive.stop();
 
