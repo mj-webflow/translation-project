@@ -498,6 +498,8 @@ async function updateComponentContent(
 
 type UpdateNode =
     | { nodeId: string; text: string }
+    | { nodeId: string; placeholder: string }
+    | { nodeId: string; value: string }
     | { nodeId: string; propertyOverrides: Array<{ propertyId: string; text: string }> };
 
 async function updatePageContent(
@@ -835,10 +837,29 @@ export async function POST(request: NextRequest) {
                 const textUpdateNodes: UpdateNode[] = textNodes.map((node, idx) => {
 					const content = translations[idx] ?? sources[idx] ?? '';
 					const rootTag = getRootTag(node.html);
-					return {
-						nodeId: node.nodeId,
-						text: ensureWrapped(content, rootTag),
-					};
+					
+					// Handle form elements differently based on their type
+					// For text inputs, use placeholder
+					if (['text-input', 'email-input', 'password-input', 'textarea'].includes(node.type || '')) {
+						return {
+							nodeId: node.nodeId,
+							placeholder: content,
+						};
+					}
+					// For submit buttons, use value
+					else if (node.type === 'submit-button') {
+						return {
+							nodeId: node.nodeId,
+							value: content,
+						};
+					}
+					// For regular text nodes, labels, and buttons, use text
+					else {
+						return {
+							nodeId: node.nodeId,
+							text: ensureWrapped(content, rootTag),
+						};
+					}
 				});
 
                 // Handle component instances: translate propertyOverrides
