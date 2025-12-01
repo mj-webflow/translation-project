@@ -338,6 +338,16 @@ async function fetchComponentProperties(
     const json: any = await response.json();
     console.log(`      Raw API response for component ${componentId}:`, JSON.stringify(json, null, 2));
     
+    // Check if this is a library component (cannot be translated)
+    const isLibrary = json?.componentMetadata?.isLibrary === true || 
+                      json?.isLibrary === true || 
+                      json?.componentMetadata?.type === 'library';
+    
+    if (isLibrary) {
+        console.log(`Component ${componentId} is a library component, skipping translation`);
+        return [];
+    }
+    
     // Try multiple possible response structures
     let props: any[] = [];
     if (Array.isArray(json?.properties)) {
@@ -406,6 +416,11 @@ async function updateComponentProperties(
     });
     if (!response.ok) {
         const errorText = await response.text();
+        // Check if this is a library component error and silently skip
+        if (errorText.includes('Cannot write localized properties for a library component')) {
+            console.log(`Component ${componentId} is a library component, skipping update`);
+            return;
+        }
         throw new Error(`Failed to update component properties for locale ${localeId}: ${errorText}`);
     }
     const result: any = await response.json().catch(() => ({}));
@@ -649,6 +664,14 @@ function createKeepAliveStream(encoder: TextEncoder) {
 export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     
+    // Helper to send SSE messages with immediate flush for Cloudflare Workers
+    const sendSSE = (controller: ReadableStreamDefaultController, encoder: TextEncoder, data: any) => {
+        const message = `data: ${JSON.stringify(data)}\n\n`;
+        controller.enqueue(encoder.encode(message));
+        // Send a comment to force flush on Cloudflare Workers
+        controller.enqueue(encoder.encode(': ping\n\n'));
+    };
+
     // Create a streaming response
     const stream = new ReadableStream({
         async start(controller) {
@@ -666,28 +689,28 @@ export async function POST(request: NextRequest) {
                 const { pageId, targetLocaleId } = body;
 
                 if (!pageId) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Page ID is required' })}\n\n`));
+                    sendSSE(controller, encoder, { error: 'Page ID is required' });
                     controller.close();
                     keepAlive.stop();
                     return;
                 }
 
                 if (!targetLocaleId) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Target locale ID is required' })}\n\n`));
+                    sendSSE(controller, encoder, { error: 'Target locale ID is required' });
                     controller.close();
                     keepAlive.stop();
                     return;
                 }
 
                 if (!token) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Webflow API token not configured' })}\n\n`));
+                    sendSSE(controller, encoder, { error: 'Webflow API token not configured' });
                     controller.close();
                     keepAlive.stop();
                     return;
                 }
 
                 if (!siteId) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Missing siteId' })}\n\n`));
+                    sendSSE(controller, encoder, { error: 'Missing siteId' });
                     controller.close();
                     keepAlive.stop();
                     return;
@@ -772,20 +795,20 @@ export async function POST(request: NextRequest) {
                 // Find the target locale
                 const locale = (locales.secondary || []).find((l: any) => l.id === targetLocaleId);
                 if (!locale) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    sendSSE(controller, encoder, { 
                         error: `Locale ${targetLocaleId} not found` 
-                    })}\n\n`));
+                    });
                     controller.close();
                     keepAlive.stop();
                     return;
                 }
 
                 // Send progress update
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                sendSSE(controller, encoder, { 
                     status: 'translating', 
                     message: `Translating ${textNodes.length} text nodes to ${locale.displayName}...`,
                     totalNodes: textNodes.length
-                })}\n\n`));
+                });
 
                 const sources = textNodes.map((node) => (
                     typeof node.html === 'string' && node.html.length > 0 ? node.html : (node.text as string)
@@ -794,10 +817,10 @@ export async function POST(request: NextRequest) {
                 let translations: string[] = [];
                 try {
                     // Send progress update before translation
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    sendSSE(controller, encoder, { 
                         status: 'translating', 
                         message: `Starting translation of ${sources.length} text nodes...`,
-                    })}\n\n`));
+                    });
                     
                     translations = await translateBatch(sources, {
                         targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
@@ -806,10 +829,10 @@ export async function POST(request: NextRequest) {
                     });
                     
                     // Send progress update after translation
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    sendSSE(controller, encoder, { 
                         status: 'translating', 
                         message: `Completed translating text nodes, preparing updates...`,
-                    })}\n\n`));
+                    });
                 } catch (error) {
                     console.error(`Failed to translate text nodes for ${locale.displayName}:`, error);
                     // Use original sources as fallback
@@ -869,10 +892,10 @@ export async function POST(request: NextRequest) {
                 let componentUpdateNodes: UpdateNode[] = [];
                 if (componentNodes.length > 0) {
                     // Send progress update for components
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    sendSSE(controller, encoder, { 
                         status: 'translating', 
                         message: `Processing ${componentNodes.length} component instances...`,
-                    })}\n\n`));
+                    });
                     
                     const overrideItems: Array<{ nodeId: string; propertyId: string; source: string }> = [];
                     for (const cn of componentNodes) {
@@ -912,19 +935,19 @@ export async function POST(request: NextRequest) {
             // Send page-level updates first (text nodes and property overrides)
             if (allUpdates.length > 0) {
                 // Send progress update before updating
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                sendSSE(controller, encoder, { 
                     status: 'updating', 
                     message: `Updating ${allUpdates.length} nodes in Webflow...`,
-                })}\n\n`));
+                });
                 
                 try {
                     await updatePageContent(pageId, locale.id, allUpdates, token, branchId);
                     
                     // Send progress update after updating
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                    sendSSE(controller, encoder, { 
                         status: 'updating', 
                         message: `Updated page content, processing components...`,
-                    })}\n\n`));
+                    });
                 } catch (error) {
                     console.error(`Failed to update page content for ${locale.displayName}:`, error);
                 }
@@ -932,10 +955,10 @@ export async function POST(request: NextRequest) {
 
             // Send progress update for component processing (using pre-discovered allComponentIds)
             if (allComponentIds.size > 0) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                sendSSE(controller, encoder, { 
                     status: 'translating', 
                     message: `Processing ${allComponentIds.size} component definition(s)...`,
-                })}\n\n`));
+                });
             }
 
             // Process components in parallel batches for better performance
@@ -947,10 +970,10 @@ export async function POST(request: NextRequest) {
                 const batch = componentArray.slice(i, i + PARALLEL_COMPONENTS);
                 
                 // Send progress update for batch
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                sendSSE(controller, encoder, { 
                     status: 'translating', 
                     message: `Processing components ${i + 1}-${Math.min(i + batch.length, componentArray.length)} of ${componentArray.length}...`,
-                })}\n\n`));
+                });
                 
                 // Process batch in parallel
                 await Promise.all(batch.map(async (componentId) => {
@@ -1057,23 +1080,23 @@ export async function POST(request: NextRequest) {
             }
 
                 // Send final success message
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                sendSSE(controller, encoder, {
                     success: true,
                     pageId,
                     localeId: locale.id,
                     localeName: locale.displayName,
                     nodesTranslated: textNodes.length,
-                })}\n\n`));
+                });
                 
                 controller.close();
                 keepAlive.stop();
 
             } catch (error) {
                 console.error('Translation error:', error);
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                sendSSE(controller, encoder, {
                     error: 'Translation failed',
                     details: error instanceof Error ? error.message : 'Unknown error',
-                })}\n\n`));
+                });
                 controller.close();
                 keepAlive.stop();
             }
