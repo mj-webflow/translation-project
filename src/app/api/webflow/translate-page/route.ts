@@ -192,7 +192,14 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
 }
 
 type ComponentContent = {
-    nodes: Array<{ nodeId: string; type?: string; text?: string; html?: string; componentId?: string }>
+    nodes: Array<{ 
+        nodeId: string; 
+        type?: string; 
+        text?: string; 
+        html?: string; 
+        componentId?: string;
+        propertyOverrides?: Array<{ propertyId: string; text?: string; html?: string }>;
+    }>
 };
 
 async function fetchComponentContent(siteId: string, componentId: string, token: string, branchId?: string | null): Promise<ComponentContent> {
@@ -262,12 +269,23 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
             }
         }
         
+        // Extract property overrides if this is a component instance
+        let propertyOverrides: Array<{ propertyId: string; text?: string; html?: string }> | undefined;
+        if (n?.type === 'component-instance' && Array.isArray(n?.propertyOverrides)) {
+            propertyOverrides = n.propertyOverrides.map((po: any) => ({
+                propertyId: po?.propertyId || '',
+                text: po?.text?.text || po?.text,
+                html: po?.text?.html || po?.html,
+            })).filter((po: any) => po.propertyId);
+        }
+        
         return {
             nodeId: typeof n?.id === 'string' ? n.id : '',
             type: typeof n?.type === 'string' ? n.type : undefined,
             text: textValue,
             html: htmlValue,
             componentId: typeof n?.componentId === 'string' ? n.componentId : undefined,
+            propertyOverrides,
         };
     }).filter((n: any) => n.nodeId);
 
@@ -275,7 +293,8 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
 }
 
 /**
- * Recursively collect all nested component IDs from a component's DOM
+ * Recursively collect all nested component IDs and instances from a component's DOM
+ * Returns both component definition IDs and component instance nodes
  */
 async function collectNestedComponentIds(
     siteId: string,
@@ -309,17 +328,58 @@ async function collectNestedComponentIds(
             const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, cache);
             nestedIds.push(...deeperIds);
         }
-        // Check for slots (which can contain components)
-        // Slots themselves don't have a componentId, but we need to fetch their content
-        // to find components nested inside them
-        else if (node.type === 'slot' && node.nodeId) {
-            // Slots are part of the component's DOM, their content is already in componentContent.nodes
-            // So we don't need to fetch them separately, just continue iterating
-            // The components inside slots will be found in subsequent iterations
-        }
     }
 
     return nestedIds;
+}
+
+/**
+ * Recursively collect all component instances (with their node IDs and property overrides)
+ * from a component's DOM, including instances nested in slots
+ * Returns instances with their parent component ID for proper updating
+ */
+async function collectNestedComponentInstances(
+    siteId: string,
+    componentId: string,
+    token: string,
+    branchId?: string | null,
+    visited: Set<string> = new Set(),
+    cache?: Map<string, ComponentContent>,
+    parentComponentId?: string
+): Promise<Array<{ nodeId: string; componentId: string; propertyOverrides?: any[]; parentComponentId: string }>> {
+    if (visited.has(componentId)) return [];
+    visited.add(componentId);
+
+    // Use cache if provided
+    let componentContent: ComponentContent;
+    if (cache && cache.has(componentId)) {
+        componentContent = cache.get(componentId)!;
+    } else {
+        componentContent = await fetchComponentContent(siteId, componentId, token, branchId);
+        if (cache) {
+            cache.set(componentId, componentContent);
+        }
+    }
+    
+    const instances: Array<{ nodeId: string; componentId: string; propertyOverrides?: any[]; parentComponentId: string }> = [];
+
+    for (const node of componentContent.nodes) {
+        if (node.type === 'component-instance' && node.componentId) {
+            // Add this instance with its parent component ID
+            instances.push({
+                nodeId: node.nodeId,
+                componentId: node.componentId,
+                propertyOverrides: (node as any).propertyOverrides,
+                parentComponentId: parentComponentId || componentId // Use provided parent or current component as parent
+            });
+            
+            // Recursively collect from nested component, passing current component as parent
+            const nestedInstances = await collectNestedComponentInstances(siteId, node.componentId, token, branchId, visited, cache, parentComponentId || componentId);
+            instances.push(...nestedInstances);
+        }
+    }
+
+    return instances;
 }
 
 /**
@@ -414,6 +474,10 @@ async function updateComponentProperties(
     url.searchParams.set('localeId', localeId);
     if (branchId) url.searchParams.set('branchId', branchId);
 
+    console.log(`[updateComponentProperties] Updating component ${componentId} for locale ${localeId}`);
+    console.log(`[updateComponentProperties] API URL: ${url.toString()}`);
+    console.log(`[updateComponentProperties] Payload:`, JSON.stringify({ properties }, null, 2));
+
     const response = await fetchWithRetry(url.toString(), {
         method: 'POST',
         headers: {
@@ -423,27 +487,36 @@ async function updateComponentProperties(
         },
         body: JSON.stringify({ properties }),
     });
+    
+    console.log(`[updateComponentProperties] Response status: ${response.status} ${response.statusText}`);
+    
     if (!response.ok) {
         const errorText = await response.text();
+        console.error(`[updateComponentProperties] Error response:`, errorText);
         // Check if this is a library component error and silently skip
         if (errorText.includes('Cannot write localized properties for a library component')) {
-            console.log(`Component ${componentId} is a library component, skipping update`);
+            console.log(`[updateComponentProperties] Component ${componentId} is a library component, skipping update`);
             return;
         }
         throw new Error(`Failed to update component properties for locale ${localeId}: ${errorText}`);
     }
     const result: any = await response.json().catch(() => ({}));
+    console.log(`[updateComponentProperties] Success response:`, JSON.stringify(result, null, 2));
+    
     if (Array.isArray(result?.errors) && result.errors.length > 0) {
+        console.error(`[updateComponentProperties] API returned errors:`, result.errors);
         const renderedErrors = result.errors.map((e: any) => typeof e === 'string' ? e : JSON.stringify(e)).join(', ');
         throw new Error(`Update component properties errors for locale ${localeId}: ${renderedErrors}`);
     }
+    
+    console.log(`[updateComponentProperties] ✓ Successfully updated ${properties.length} properties for component ${componentId}`);
 }
 
 async function updateComponentContent(
     siteId: string,
     componentId: string,
     localeId: string,
-    nodes: Array<{ nodeId: string; text?: string; placeholder?: string }>,
+    nodes: Array<{ nodeId: string; text?: string; placeholder?: string; propertyOverrides?: Array<{ propertyId: string; text: string }> }>,
     token: string,
     branchId?: string | null
 ): Promise<void> {
@@ -740,10 +813,24 @@ export async function POST(request: NextRequest) {
 		console.log(`Found ${allComponentInstances.length} component instance(s), ${pageContent.nodes.filter(n => n.type === 'text').length} text nodes`);
 
 		if (!pageContent.nodes || pageContent.nodes.length === 0) {
-			return NextResponse.json(
-				{ error: 'No content found on page' },
-				{ status: 404 }
-			);
+			console.log('Page has no content, sending success message for all locales');
+			// Send success messages for all locales (nothing to translate)
+			for (const targetLocaleId of targetLocaleIds) {
+				const locale = (locales.secondary || []).find((l: any) => l.id === targetLocaleId);
+				if (locale) {
+					sendSSE(controller, encoder, {
+						success: true,
+						pageId,
+						localeId: locale.id,
+						localeName: locale.displayName,
+						nodesTranslated: 0,
+					});
+				}
+			}
+			console.log(`All ${targetLocaleIds.length} locale(s) processed (no content to translate)`);
+			controller.close();
+			keepAlive.stop();
+			return;
 		}
 
 				// Filter translatable nodes (text nodes AND form elements with text content)
@@ -808,6 +895,28 @@ export async function POST(request: NextRequest) {
 		console.log(`Component analysis: ${allComponentInstances.length} total, ${componentsWithoutOverrides.length} without overrides, ${allComponentIds.size} unique (including nested)`);
 		console.log(`All component IDs to translate:`, Array.from(allComponentIds));
 		// ===== END COMPONENT DISCOVERY =====
+		
+		// Check if there's anything to translate
+		if (textNodes.length === 0 && allComponentIds.size === 0) {
+			console.log('Page has no translatable content (no text nodes and no components), sending success message for all locales');
+			// Send success messages for all locales (nothing to translate)
+			for (const targetLocaleId of targetLocaleIds) {
+				const locale = (locales.secondary || []).find((l: any) => l.id === targetLocaleId);
+				if (locale) {
+					sendSSE(controller, encoder, {
+						success: true,
+						pageId,
+						localeId: locale.id,
+						localeName: locale.displayName,
+						nodesTranslated: 0,
+					});
+				}
+			}
+			console.log(`All ${targetLocaleIds.length} locale(s) processed (no translatable content)`);
+			controller.close();
+			keepAlive.stop();
+			return;
+		}
 
                 // Process each locale
                 for (let localeIndex = 0; localeIndex < targetLocaleIds.length; localeIndex++) {
@@ -906,20 +1015,123 @@ export async function POST(request: NextRequest) {
 					}
 				});
 
-                // Handle component instances: translate propertyOverrides
-                const componentNodes = pageContent.nodes.filter(n => n.type === 'component-instance' && Array.isArray(n.propertyOverrides) && (n.propertyOverrides as any).length > 0);
+                // Handle component instances: we need to set property overrides for ALL instances
+                // This includes instances on the page AND nested instances inside other components
+                const pageComponentInstances = pageContent.nodes.filter(n => n.type === 'component-instance' && typeof n.componentId === 'string');
+                
+                // Collect nested component instances from ALL top-level components
+                console.log('Collecting nested component instances...');
+                const nestedInstances: Array<{ nodeId: string; componentId: string; propertyOverrides?: any[] }> = [];
+                for (const topLevelComponentId of allTopLevelComponentIds) {
+                    const nested = await collectNestedComponentInstances(siteId, topLevelComponentId, token, branchId, new Set(), componentContentCache);
+                    nestedInstances.push(...nested);
+                    if (nested.length > 0) {
+                        console.log(`Component ${topLevelComponentId} contains ${nested.length} nested instance(s)`);
+                    }
+                }
+                
+                // Separate page-level and nested instances (they use different APIs)
+                const pageLevelInstances = pageComponentInstances.map(n => ({ 
+                    nodeId: n.nodeId, 
+                    componentId: n.componentId as string, 
+                    propertyOverrides: n.propertyOverrides,
+                    isPageLevel: true
+                }));
+                
+                const nestedInstancesWithFlag = nestedInstances.map(n => ({
+                    ...n,
+                    isPageLevel: false
+                }));
+                
+                const pageComponentNodesWithOverrides = pageLevelInstances.filter(n => Array.isArray(n.propertyOverrides) && n.propertyOverrides.length > 0);
+                const pageComponentNodesWithoutOverrides = pageLevelInstances.filter(n => !n.propertyOverrides || n.propertyOverrides.length === 0);
+                
+                const nestedComponentNodesWithOverrides = nestedInstancesWithFlag.filter(n => Array.isArray(n.propertyOverrides) && n.propertyOverrides.length > 0);
+                const nestedComponentNodesWithoutOverrides = nestedInstancesWithFlag.filter(n => !n.propertyOverrides || n.propertyOverrides.length === 0);
 
-                console.log(`Found ${componentNodes.length} component instance(s) with property overrides for ${locale.displayName}`);
+                console.log(`Found ${pageLevelInstances.length + nestedInstances.length} total component instance(s):`);
+                console.log(`  Page-level: ${pageLevelInstances.length} (${pageComponentNodesWithOverrides.length} with overrides, ${pageComponentNodesWithoutOverrides.length} without)`);
+                console.log(`  Nested: ${nestedInstances.length} (${nestedComponentNodesWithOverrides.length} with overrides, ${nestedComponentNodesWithoutOverrides.length} without)`);
                 let componentUpdateNodes: UpdateNode[] = [];
-                if (componentNodes.length > 0) {
+                
+                // First, handle PAGE-LEVEL component instances WITHOUT overrides
+                // We need to fetch their component's default properties and set them as overrides
+                if (pageComponentNodesWithoutOverrides.length > 0) {
+                    console.log(`Processing ${pageComponentNodesWithoutOverrides.length} page-level component instances without overrides...`);
+                    sendSSE(controller, encoder, { 
+                        status: 'translating', 
+                        message: `Processing ${pageComponentNodesWithoutOverrides.length} component instances...`,
+                    });
+                    
+                    const defaultPropertyItems: Array<{ nodeId: string; componentId: string; propertyId: string; source: string }> = [];
+                    
+                    // For each instance, fetch its component's properties
+                    for (const instance of pageComponentNodesWithoutOverrides) {
+                        try {
+                            const componentId = instance.componentId as string;
+                            const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
+                            
+                            // Add each property as an override for this instance
+                            for (const prop of properties) {
+                                if (prop.text && prop.text.trim().length > 0) {
+                                    defaultPropertyItems.push({
+                                        nodeId: instance.nodeId,
+                                        componentId: componentId,
+                                        propertyId: prop.propertyId,
+                                        source: prop.text
+                                    });
+                                }
+                            }
+                        } catch (error) {
+                            console.error(`Failed to fetch properties for component ${instance.componentId}:`, error);
+                        }
+                    }
+                    
+                    console.log(`Found ${defaultPropertyItems.length} default properties to translate across ${pageComponentNodesWithoutOverrides.length} page-level instances`);
+                    
+                    if (defaultPropertyItems.length > 0) {
+                        try {
+                            const defaultTranslations = await translateBatch(defaultPropertyItems.map(i => i.source), {
+                                targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                                sourceLanguage: 'en',
+                                context: `Webflow component content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                            });
+                            
+                            // Group by nodeId
+                            const groupByNode = new Map<string, Array<{ propertyId: string; text: string }>>();
+                            defaultPropertyItems.forEach((item, idx) => {
+                                const list = groupByNode.get(item.nodeId) || [];
+                                list.push({ propertyId: item.propertyId, text: defaultTranslations[idx] ?? item.source });
+                                groupByNode.set(item.nodeId, list);
+                            });
+                            
+                            // Add to componentUpdateNodes
+                            const defaultOverrideNodes = Array.from(groupByNode.entries()).map(([nodeId, propertyOverrides]) => ({ nodeId, propertyOverrides }));
+                            componentUpdateNodes.push(...defaultOverrideNodes);
+                            console.log(`Created ${defaultOverrideNodes.length} property override updates for instances without overrides`);
+                        } catch (error) {
+                            console.error(`Failed to translate default properties for ${locale.displayName}:`, error);
+                        }
+                    }
+                }
+                
+                // Then, handle PAGE-LEVEL component instances WITH existing overrides
+                if (pageComponentNodesWithOverrides.length > 0) {
+                    console.log(`Processing ${pageComponentNodesWithOverrides.length} page-level component instances with existing overrides...`);
+                    console.log(`Page-level instances with overrides:`, pageComponentNodesWithOverrides.map(n => ({ 
+                        nodeId: n.nodeId, 
+                        componentId: n.componentId, 
+                        overrideCount: n.propertyOverrides?.length || 0 
+                    })));
+                    
                     // Send progress update for components
                     sendSSE(controller, encoder, { 
                         status: 'translating', 
-                        message: `Processing ${componentNodes.length} component instances...`,
+                        message: `Processing ${pageComponentNodesWithOverrides.length} component instances with existing overrides...`,
                     });
                     
                     const overrideItems: Array<{ nodeId: string; propertyId: string; source: string }> = [];
-                    for (const cn of componentNodes) {
+                    for (const cn of pageComponentNodesWithOverrides) {
                         for (const po of cn.propertyOverrides || []) {
                             const src = typeof po.html === 'string' && po.html.length > 0 ? po.html : (po.text as string | undefined);
                             if (typeof src === 'string' && src.trim().length > 0) {
@@ -944,10 +1156,124 @@ export async function POST(request: NextRequest) {
                                 group.set(item.nodeId, list);
                             });
 
-                            componentUpdateNodes = Array.from(group.entries()).map(([nodeId, propertyOverrides]) => ({ nodeId, propertyOverrides }));
+                            const existingOverrideNodes = Array.from(group.entries()).map(([nodeId, propertyOverrides]) => ({ nodeId, propertyOverrides }));
+                            componentUpdateNodes.push(...existingOverrideNodes);
+                            console.log(`Created ${existingOverrideNodes.length} property override updates for page-level instances with existing overrides`);
                         } catch (error) {
                             console.error(`Failed to translate component property overrides for ${locale.displayName}:`, error);
                             console.log('Failed overrides:', overrideItems.map(i => `${i.nodeId}/${i.propertyId}: ${i.source.substring(0, 100)}...`));
+                        }
+                    }
+                }
+                
+                // Handle NESTED component instances (both with and without overrides)
+                // These need to be updated via their parent component's DOM API
+                const allNestedInstances = [...nestedComponentNodesWithOverrides, ...nestedComponentNodesWithoutOverrides];
+                if (allNestedInstances.length > 0) {
+                    console.log(`Processing ${allNestedInstances.length} nested component instances (${nestedComponentNodesWithOverrides.length} with overrides, ${nestedComponentNodesWithoutOverrides.length} without)...`);
+                    
+                    // Group nested instances by their parent component for batch updates
+                    // Key: parent component ID, Value: array of instance updates
+                    const nestedUpdatesByParent = new Map<string, Array<{ 
+                        nodeId: string; 
+                        propertyOverrides: Array<{ propertyId: string; text: string }> 
+                    }>>();
+                    
+                    for (const nested of allNestedInstances) {
+                        // Translate and prepare updates for each nested instance
+                        if (nested.propertyOverrides && nested.propertyOverrides.length > 0) {
+                            console.log(`Nested instance ${nested.nodeId} (component ${nested.componentId}) has ${nested.propertyOverrides.length} override(s)`);
+                            
+                            // Extract text from overrides (handle both string and object types)
+                            const overrideItems: Array<{ propertyId: string; source: string; isHtml: boolean; originalHtml?: string }> = [];
+                            for (const po of nested.propertyOverrides) {
+                                let textContent: string | undefined;
+                                let isHtml = false;
+                                let originalHtml: string | undefined;
+                                
+                                if (typeof po.text === 'string') {
+                                    textContent = po.text;
+                                } else if (po.text && typeof po.text === 'object' && (po.text as any).html) {
+                                    // This is an HTML property - extract text but remember it's HTML
+                                    const htmlContent = (po.text as any).html;
+                                    textContent = htmlContent.replace(/<[^>]*>/g, ' ').trim();
+                                    isHtml = true;
+                                    originalHtml = htmlContent;
+                                }
+                                
+                                if (textContent && textContent.trim().length > 0) {
+                                    overrideItems.push({ propertyId: po.propertyId, source: textContent, isHtml, originalHtml });
+                                }
+                            }
+                            
+                            if (overrideItems.length > 0) {
+                                try {
+                                    const translations = await translateBatch(overrideItems.map(i => i.source), {
+                                        targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
+                                        sourceLanguage: 'en',
+                                        context: `Webflow nested component: ${nested.componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                                    });
+                                    
+                                    console.log(`Translated ${translations.length} nested override(s) for instance ${nested.nodeId}`);
+                                    console.log(`  Sources: ${overrideItems.map(i => i.source.substring(0, 50)).join(', ')}`);
+                                    console.log(`  Translations: ${translations.map(t => t.substring(0, 50)).join(', ')}`);
+                                    
+                                    // Store the translated overrides grouped by parent component
+                                    // For HTML properties, wrap the translation in the original HTML structure
+                                    const translatedOverrides = overrideItems.map((item, idx) => {
+                                        let translatedText = translations[idx] ?? item.source;
+                                        
+                                        // If this was an HTML property, wrap the translated text in a div
+                                        if (item.isHtml) {
+                                            // Simple approach: wrap in a div
+                                            // TODO: Preserve original HTML structure if needed
+                                            translatedText = `<div>${translatedText}</div>`;
+                                            console.log(`  Wrapped HTML property ${item.propertyId}: ${translatedText.substring(0, 100)}`);
+                                        }
+                                        
+                                        return {
+                                            propertyId: item.propertyId,
+                                            text: translatedText
+                                        };
+                                    });
+                                    
+                                    const parentId = (nested as any).parentComponentId;
+                                    if (!nestedUpdatesByParent.has(parentId)) {
+                                        nestedUpdatesByParent.set(parentId, []);
+                                    }
+                                    nestedUpdatesByParent.get(parentId)!.push({
+                                        nodeId: nested.nodeId,
+                                        propertyOverrides: translatedOverrides
+                                    });
+                                } catch (error) {
+                                    console.error(`Failed to translate nested instance ${nested.nodeId}:`, error);
+                                }
+                            }
+                        } else {
+                            console.log(`Nested instance ${nested.nodeId} (component ${nested.componentId}) has no overrides, will use default properties`);
+                        }
+                    }
+                    
+                    // Apply nested instance updates via their parent component's DOM API
+                    if (nestedUpdatesByParent.size > 0) {
+                        console.log(`Applying ${nestedUpdatesByParent.size} parent component(s) with nested instance updates...`);
+                        
+                        for (const [parentComponentId, updates] of nestedUpdatesByParent.entries()) {
+                            console.log(`Updating ${updates.length} nested instance(s) in parent component ${parentComponentId}`);
+                            
+                            try {
+                                // Convert to the format expected by updateComponentContent
+                                const componentNodes = updates.map(u => ({
+                                    nodeId: u.nodeId,
+                                    propertyOverrides: u.propertyOverrides
+                                }));
+                                
+                                // Update via component DOM API
+                                await updateComponentContent(siteId, parentComponentId, locale.id, componentNodes, token, branchId);
+                                console.log(`✓ Updated ${updates.length} nested instance(s) in component ${parentComponentId}`);
+                            } catch (error) {
+                                console.error(`Failed to update nested instances in component ${parentComponentId}:`, error);
+                            }
                         }
                     }
                 }
@@ -955,6 +1281,11 @@ export async function POST(request: NextRequest) {
             const allUpdates: UpdateNode[] = [...textUpdateNodes, ...componentUpdateNodes];
             // Send page-level updates first (text nodes and property overrides)
             if (allUpdates.length > 0) {
+                console.log(`Preparing to update ${allUpdates.length} nodes via page API:`);
+                console.log(`  Text nodes: ${textUpdateNodes.length}`);
+                console.log(`  Component property overrides: ${componentUpdateNodes.length}`);
+                console.log(`  Component override node IDs: ${componentUpdateNodes.map((n: any) => n.nodeId).join(', ')}`);
+                
                 // Send progress update before updating
                 sendSSE(controller, encoder, { 
                     status: 'updating', 
@@ -1010,20 +1341,30 @@ export async function POST(request: NextRequest) {
                         
                         // Translate component properties if they exist
                         if (translatableProps.length > 0) {
+                            console.log(`[Component ${componentId}] Starting translation of ${translatableProps.length} properties for locale ${locale.displayName}...`);
                             const compSources = translatableProps.map(p => p.text as string);
+                            console.log(`[Component ${componentId}] Source texts:`, compSources);
+                            
                             const compTranslations = await translateBatch(compSources, {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                                 sourceLanguage: 'en',
                                 context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
                             });
+                            
+                            console.log(`[Component ${componentId}] Translated texts:`, compTranslations);
 
                             // Build properties payload with translated text (HTML preserved by translator)
                             const propertiesPayload = translatableProps.map((p, idx) => ({
                                 propertyId: p.propertyId,
                                 text: compTranslations[idx] ?? p.text ?? '',
                             }));
+                            
+                            console.log(`[Component ${componentId}] Sending update payload to Webflow:`, JSON.stringify(propertiesPayload, null, 2));
 
                             await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
+                            console.log(`[Component ${componentId}] ✓ Properties updated successfully for locale ${locale.displayName}`);
+                        } else {
+                            console.log(`[Component ${componentId}] No translatable properties found, skipping property translation`);
                         }
                         
                         // ALWAYS check DOM text nodes (for form elements, buttons, labels, etc.)
