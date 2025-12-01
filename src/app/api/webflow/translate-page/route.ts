@@ -310,9 +310,15 @@ async function collectNestedComponentIds(
     token: string,
     branchId?: string | null,
     visited: Set<string> = new Set(),
-    cache?: Map<string, ComponentContent>
+    cache?: Map<string, ComponentContent>,
+    depth: number = 0,
+    maxDepth: number = 10
 ): Promise<string[]> {
     if (visited.has(componentId)) return [];
+    if (depth >= maxDepth) {
+        console.log(`Reached max depth (${maxDepth}) for component ${componentId}, stopping recursion`);
+        return [];
+    }
     visited.add(componentId);
 
     // Use cache if provided to avoid redundant API calls
@@ -332,8 +338,8 @@ async function collectNestedComponentIds(
         // Check for component instances (direct components)
         if (node.type === 'component-instance' && node.componentId) {
             nestedIds.push(node.componentId);
-            // Recursively collect from nested component
-            const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, cache);
+            // Recursively collect from nested component with incremented depth
+            const deeperIds = await collectNestedComponentIds(siteId, node.componentId, token, branchId, visited, cache, depth + 1, maxDepth);
             nestedIds.push(...deeperIds);
         }
     }
@@ -353,9 +359,15 @@ async function collectNestedComponentInstances(
     branchId?: string | null,
     visited: Set<string> = new Set(),
     cache?: Map<string, ComponentContent>,
-    parentComponentId?: string
+    parentComponentId?: string,
+    depth: number = 0,
+    maxDepth: number = 10
 ): Promise<Array<{ nodeId: string; componentId: string; propertyOverrides?: any[]; parentComponentId: string }>> {
     if (visited.has(componentId)) return [];
+    if (depth >= maxDepth) {
+        console.log(`Reached max depth (${maxDepth}) for nested instances in component ${componentId}, stopping recursion`);
+        return [];
+    }
     visited.add(componentId);
 
     // Use cache if provided
@@ -381,8 +393,8 @@ async function collectNestedComponentInstances(
                 parentComponentId: parentComponentId || componentId // Use provided parent or current component as parent
             });
             
-            // Recursively collect from nested component, passing current component as parent
-            const nestedInstances = await collectNestedComponentInstances(siteId, node.componentId, token, branchId, visited, cache, parentComponentId || componentId);
+            // Recursively collect from nested component, passing current component as parent and incremented depth
+            const nestedInstances = await collectNestedComponentInstances(siteId, node.componentId, token, branchId, visited, cache, parentComponentId || componentId, depth + 1, maxDepth);
             instances.push(...nestedInstances);
         }
     }
