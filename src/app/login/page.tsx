@@ -58,13 +58,6 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        // Check if email ends with @webflow.com
-        if (!data.user.email?.endsWith('@webflow.com')) {
-          await client.auth.signOut();
-          setError('Access restricted to @webflow.com email addresses only.');
-          return;
-        }
-
         // Redirect to setup page
         const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
         window.location.href = `${basePath}/setup`;
@@ -157,7 +150,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 className="w-full px-4 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 placeholder-zinc-500 dark:placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="you@webflow.com"
+                placeholder="your@email.com"
               />
             </div>
 
@@ -195,7 +188,7 @@ export default function LoginPage() {
 
           <div className="mt-8 p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
             <p className="text-xs text-zinc-600 dark:text-zinc-400 text-center">
-              🔒 Access restricted to <strong>@webflow.com</strong> email addresses only.
+              🔒 Secure authentication powered by Supabase.
               <br />
               Contact your administrator to request access.
             </p>
