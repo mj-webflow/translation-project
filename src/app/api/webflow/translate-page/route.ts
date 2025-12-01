@@ -8,12 +8,20 @@ const WEBFLOW_SITE_ID = process.env.WEBFLOW_SITE_ID || '';
 /**
  * Fetch with retry logic for rate limiting
  */
+// Global counter for Webflow API calls (scoped per request)
+let requestApiCallCount = 0;
+
 async function fetchWithRetry(
     url: string,
     options: RequestInit,
     maxRetries: number = 3
 ): Promise<Response> {
     let lastError: Error | null = null;
+    
+    // Increment counter for Webflow API calls
+    if (url.includes('api.webflow.com')) {
+        requestApiCallCount++;
+    }
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
@@ -760,6 +768,9 @@ export async function POST(request: NextRequest) {
             const keepAlive = createKeepAliveStream(encoder);
             keepAlive.start(controller);
             
+            // Reset counter for this request
+            requestApiCallCount = 0;
+            
             try {
                 const overrideToken = request.headers.get('x-webflow-token') || '';
                 const { searchParams } = new URL(request.url);
@@ -828,6 +839,7 @@ export async function POST(request: NextRequest) {
 				}
 			}
 			console.log(`All ${targetLocaleIds.length} locale(s) processed (no content to translate)`);
+			console.log(`Total Webflow API calls made: ${requestApiCallCount}`);
 			controller.close();
 			keepAlive.stop();
 			return;
@@ -913,6 +925,7 @@ export async function POST(request: NextRequest) {
 				}
 			}
 			console.log(`All ${targetLocaleIds.length} locale(s) processed (no translatable content)`);
+			console.log(`Total Webflow API calls made: ${requestApiCallCount}`);
 			controller.close();
 			keepAlive.stop();
 			return;
@@ -1166,11 +1179,17 @@ export async function POST(request: NextRequest) {
                     }
                 }
                 
-                // Handle NESTED component instances (both with and without overrides)
+                // Handle NESTED component instances WITH overrides only
+                // Instances without overrides will use default component properties (no translation needed)
                 // These need to be updated via their parent component's DOM API
-                const allNestedInstances = [...nestedComponentNodesWithOverrides, ...nestedComponentNodesWithoutOverrides];
-                if (allNestedInstances.length > 0) {
-                    console.log(`Processing ${allNestedInstances.length} nested component instances (${nestedComponentNodesWithOverrides.length} with overrides, ${nestedComponentNodesWithoutOverrides.length} without)...`);
+                const MAX_NESTED_INSTANCES = 10; // Limit to prevent timeouts
+                if (nestedComponentNodesWithOverrides.length > 0) {
+                    const nestedToProcess = nestedComponentNodesWithOverrides.slice(0, MAX_NESTED_INSTANCES);
+                    if (nestedComponentNodesWithOverrides.length > MAX_NESTED_INSTANCES) {
+                        console.log(`Found ${nestedComponentNodesWithOverrides.length} nested instances with overrides, processing first ${MAX_NESTED_INSTANCES} to avoid timeout`);
+                    } else {
+                        console.log(`Processing ${nestedComponentNodesWithOverrides.length} nested component instances with overrides...`);
+                    }
                     
                     // Group nested instances by their parent component for batch updates
                     // Key: parent component ID, Value: array of instance updates
@@ -1179,8 +1198,8 @@ export async function POST(request: NextRequest) {
                         propertyOverrides: Array<{ propertyId: string; text: string }> 
                     }>>();
                     
-                    for (const nested of allNestedInstances) {
-                        // Translate and prepare updates for each nested instance
+                    for (const nested of nestedToProcess) {
+                        // Translate and prepare updates for each nested instance with overrides
                         if (nested.propertyOverrides && nested.propertyOverrides.length > 0) {
                             console.log(`Nested instance ${nested.nodeId} (component ${nested.componentId}) has ${nested.propertyOverrides.length} override(s)`);
                             
@@ -1249,8 +1268,6 @@ export async function POST(request: NextRequest) {
                                     console.error(`Failed to translate nested instance ${nested.nodeId}:`, error);
                                 }
                             }
-                        } else {
-                            console.log(`Nested instance ${nested.nodeId} (component ${nested.componentId}) has no overrides, will use default properties`);
                         }
                     }
                     
@@ -1314,7 +1331,7 @@ export async function POST(request: NextRequest) {
             }
 
             // Process components in parallel batches for better performance
-            const PARALLEL_COMPONENTS = 5; // Process 5 components at a time
+            const PARALLEL_COMPONENTS = 3; // Process 3 components at a time (reduced for Cloudflare CPU limits)
             const componentArray = Array.from(allComponentIds);
             let processedComponents = 0;
             
@@ -1460,6 +1477,7 @@ export async function POST(request: NextRequest) {
                 
                 // All locales processed successfully
                 console.log(`All ${targetLocaleIds.length} locale(s) processed successfully`);
+                console.log(`Total Webflow API calls made: ${requestApiCallCount}`);
                 controller.close();
                 keepAlive.stop();
 
