@@ -134,6 +134,8 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
     const mapped: PageContent['nodes'] = domNodes.map((n: any) => {
         let textValue: string | undefined;
         let htmlValue: string | undefined;
+        
+        // Handle regular text nodes
         if (n?.type === 'text') {
             // Prefer HTML when present to preserve nested tags/spans
             if (typeof n?.text?.html === 'string' && n.text.html.length > 0) {
@@ -143,6 +145,31 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
                 textValue = n.text.text;
             }
         }
+        
+        // Handle form elements (input, textarea, button, label) with text/placeholder/value
+        // These have translatable text in their text property or attributes
+        if (['input', 'text-input', 'email-input', 'password-input', 'textarea', 'button', 'submit-button', 'label', 'form-label', 'input-label'].includes(n?.type)) {
+            // Check for text content first (labels, buttons)
+            if (typeof n?.text?.text === 'string' && n.text.text.length > 0) {
+                textValue = n.text.text;
+            } else if (typeof n?.text?.html === 'string' && n.text.html.length > 0) {
+                htmlValue = n.text.html;
+                textValue = stripHtml(n.text.html);
+            }
+            // Form elements store placeholder at root level (n.placeholder)
+            else if (typeof n?.placeholder === 'string' && n.placeholder.length > 0) {
+                textValue = n.placeholder;
+            } else if (typeof n?.value === 'string' && n.value.length > 0) {
+                textValue = n.value;
+            }
+            // Fallback to attributes if needed
+            else if (typeof n?.attributes?.placeholder === 'string' && n.attributes.placeholder.length > 0) {
+                textValue = n.attributes.placeholder;
+            } else if (typeof n?.attributes?.value === 'string' && n.attributes.value.length > 0) {
+                textValue = n.attributes.value;
+            }
+        }
+        
         let propertyOverrides: Array<{ propertyId: string; text?: string; html?: string }> | undefined;
         if (n?.type === 'component-instance' && Array.isArray(n?.propertyOverrides)) {
             propertyOverrides = n.propertyOverrides.map((po: any) => ({
@@ -208,6 +235,8 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
     const result = nodes.map((n: any) => {
         let textValue: string | undefined;
         let htmlValue: string | undefined;
+        
+        // Handle regular text nodes
         if (n?.type === 'text') {
             // Prefer HTML when present to preserve nested tags/spans
             if (typeof n?.text?.html === 'string' && n.text.html.length > 0) {
@@ -216,6 +245,23 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
                 textValue = n.text.text;
             }
         }
+        
+        // Handle form elements (input, textarea, button, label) with text/placeholder/value
+        if (['input', 'text-input', 'email-input', 'password-input', 'textarea', 'button', 'submit-button', 'label', 'form-label', 'input-label'].includes(n?.type)) {
+            // Check for text content first (labels, buttons)
+            if (typeof n?.text?.text === 'string' && n.text.text.length > 0) {
+                textValue = n.text.text;
+            } else if (typeof n?.text?.html === 'string' && n.text.html.length > 0) {
+                htmlValue = n.text.html;
+            }
+            // Form elements store placeholder at ROOT level (n.placeholder, NOT n.attributes.placeholder)
+            else if (typeof n?.placeholder === 'string' && n.placeholder.length > 0) {
+                textValue = n.placeholder;
+            } else if (typeof n?.value === 'string' && n.value.length > 0) {
+                textValue = n.value;
+            }
+        }
+        
         return {
             nodeId: typeof n?.id === 'string' ? n.id : '',
             type: typeof n?.type === 'string' ? n.type : undefined,
@@ -373,13 +419,14 @@ async function updateComponentContent(
     siteId: string,
     componentId: string,
     localeId: string,
-    nodes: Array<{ nodeId: string; text: string }>,
+    nodes: Array<{ nodeId: string; text?: string; placeholder?: string }>,
     token: string,
     branchId?: string | null
 ): Promise<void> {
     const url = new URL(`https://api.webflow.com/v2/sites/${siteId}/components/${componentId}/dom`);
     url.searchParams.set('localeId', localeId);
     if (branchId) url.searchParams.set('branchId', branchId);
+
 
     const response = await fetchWithRetry(url.toString(), {
         method: 'POST',
@@ -393,9 +440,12 @@ async function updateComponentContent(
 
     if (!response.ok) {
         const errorText = await response.text();
+        console.error(`[updateComponentContent] API Error Response:`, errorText);
         throw new Error(`Failed to update component ${componentId} content for locale ${localeId}: ${errorText}`);
     }
+    
     const result: any = await response.json().catch(() => ({}));
+    
     if (Array.isArray(result?.errors) && result.errors.length > 0) {
         // Attempt corrective retry by wrapping with expected root tags
         const expectedTagByNode = new Map<string, string>();
@@ -662,10 +712,12 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
-				// Filter text nodes only (ensure type and either text/html are present)
+				// Filter translatable nodes (text nodes AND form elements with text content)
 				// Also filter out nodes with minimal content (< 3 chars after stripping HTML)
 				const textNodes = pageContent.nodes.filter(node => {
-					if (node.type !== 'text') return false;
+					// Include text nodes, form elements, and labels
+					const translatableTypes = ['text', 'input', 'text-input', 'email-input', 'password-input', 'textarea', 'button', 'submit-button', 'label', 'form-label', 'input-label'];
+					if (!translatableTypes.includes(node.type || '')) return false;
 					
 					// Get the actual text content
 					let content = '';
@@ -679,7 +731,7 @@ export async function POST(request: NextRequest) {
 					// Filter out empty or very short content (punctuation, single chars, etc)
 					return content.length >= 3;
 				});
-		console.log(`Found ${textNodes.length} text nodes to translate`);
+		console.log(`Found ${textNodes.length} translatable nodes (text + form elements)`);
 
 		// Create a cache for component content to avoid redundant API calls
 		const componentContentCache = new Map<string, ComponentContent>();
@@ -886,6 +938,7 @@ export async function POST(request: NextRequest) {
                         const properties = await fetchComponentProperties(siteId, componentId, token, branchId);
                         const translatableProps = properties.filter(p => typeof p.text === 'string' && p.text.trim().length > 0);
                         
+                        // Translate component properties if they exist
                         if (translatableProps.length > 0) {
                             const compSources = translatableProps.map(p => p.text as string);
                             const compTranslations = await translateBatch(compSources, {
@@ -901,23 +954,26 @@ export async function POST(request: NextRequest) {
                             }));
 
                             await updateComponentProperties(siteId, componentId, locale.id, propertiesPayload, token, branchId);
-                        } else {
-                            // If no properties, try to translate DOM text nodes
-                            // Use cache to avoid redundant API calls
-                            if (!componentContentCache.has(componentId)) {
-                                const content = await fetchComponentContent(siteId, componentId, token, branchId);
-                                componentContentCache.set(componentId, content);
-                            }
-                            const comp = componentContentCache.get(componentId)!;
-                            const compTextNodes = comp.nodes.filter(n => n.type === 'text' && (
+                        }
+                        
+                        // ALWAYS check DOM text nodes (for form elements, buttons, labels, etc.)
+                        // Use cache to avoid redundant API calls
+                        if (!componentContentCache.has(componentId)) {
+                            const content = await fetchComponentContent(siteId, componentId, token, branchId);
+                            componentContentCache.set(componentId, content);
+                        }
+                        const comp = componentContentCache.get(componentId)!;
+                        // Include text nodes AND form elements (labels, inputs, buttons, etc.)
+                        const translatableTypes = ['text', 'input', 'text-input', 'email-input', 'password-input', 'textarea', 'button', 'submit-button', 'label', 'form-label', 'input-label'];
+                        
+                        const compTextNodes = comp.nodes.filter(n => 
+                            translatableTypes.includes(n.type || '') && (
                                 (typeof n.html === 'string' && n.html.trim().length > 0) ||
                                 (typeof n.text === 'string' && n.text.trim().length > 0)
-                            ));
-                            
-                            if (compTextNodes.length === 0) {
-                                return;
-                            }
-
+                            )
+                        );
+                        
+                        if (compTextNodes.length > 0) {
                             const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
                             const compTranslations = await translateBatch(compSources, {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
@@ -943,10 +999,31 @@ export async function POST(request: NextRequest) {
                                 return `<${tag}>${escapeHtml(trimmed)}</${tag}>`;
                             };
 
-                            const compUpdateNodes = compTextNodes.map((n, idx) => ({
-                                nodeId: n.nodeId,
-                                text: ensureWrapped(compTranslations[idx] ?? compSources[idx] ?? '', getRootTag(n.html)),
-                            }));
+                            const compUpdateNodes = compTextNodes.map((n, idx) => {
+                                const translatedContent = compTranslations[idx] ?? compSources[idx] ?? '';
+                                
+                                // For form inputs, update placeholder instead of text
+                                if (['text-input', 'email-input', 'password-input', 'textarea'].includes(n.type || '')) {
+                                    return {
+                                        nodeId: n.nodeId,
+                                        placeholder: translatedContent,
+                                    };
+                                }
+                                // For submit buttons, update value instead of text
+                                else if (n.type === 'submit-button') {
+                                    return {
+                                        nodeId: n.nodeId,
+                                        value: translatedContent,
+                                    };
+                                }
+                                // For regular buttons, labels, and text nodes, update text
+                                else {
+                                    return {
+                                        nodeId: n.nodeId,
+                                        text: ensureWrapped(translatedContent, getRootTag(n.html)),
+                                    };
+                                }
+                            });
 
                             await updateComponentContent(siteId, componentId, locale.id, compUpdateNodes, token, branchId);
                         }
@@ -987,6 +1064,7 @@ export async function POST(request: NextRequest) {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no', // Disable buffering for Cloudflare Workers
         },
     });
 }
