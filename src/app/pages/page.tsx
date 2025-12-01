@@ -335,8 +335,9 @@ export default function WebflowPagesPage() {
           setPages(data.pages);
         }
       } catch (error) {
-        console.error(`Translation failed:`, error);
+        console.error(`Translation request failed (may be timeout):`, error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        
         // Mark all remaining locales as failed
         for (const localeName of selectedLocaleNames) {
           if (!completedLocales.includes(localeName)) {
@@ -344,19 +345,50 @@ export default function WebflowPagesPage() {
           }
         }
         
-        // Still show final status even if fetch failed
-        setTranslationProgress(prev => {
-          const finalStatus: 'error' = 'error';
-          return {
-            ...prev,
-            [pageId]: {
-              ...prev[pageId],
-              status: finalStatus,
-              currentStep: `Translation failed: ${errorMessage}`,
-              error: errorMessage,
+        // If some locales completed before the timeout, treat as partial success
+        if (completedLocales.length > 0) {
+          console.log(`Stream timed out, but ${completedLocales.length} locale(s) completed successfully`);
+          
+          let finalMessage = '';
+          if (completedLocales.length === selectedLocaleIds.length) {
+            finalMessage = `Translation complete! Successfully translated to all ${completedLocales.length} locale(s) (connection timed out but work completed)`;
+          } else {
+            finalMessage = `Partially complete: Translated to ${completedLocales.length}/${selectedLocaleIds.length} locale(s). `;
+            if (failedLocales.length > 0) {
+              const failedNames = failedLocales.map(f => f.name).join(', ');
+              finalMessage += `Failed or timed out: ${failedNames}`;
             }
-          };
-        });
+          }
+          
+          setTranslationProgress(prev => {
+            const finalStatus: 'complete' | 'error' = completedLocales.length === selectedLocaleIds.length ? 'complete' : 'error';
+            return {
+              ...prev,
+              [pageId]: {
+                ...prev[pageId],
+                status: finalStatus,
+                completedLocales: [...completedLocales],
+                currentStep: finalMessage,
+                nodesCount: totalNodesTranslated,
+                error: failedLocales.length > 0 ? failedLocales.map(f => `${f.name}: ${f.error}`).join('; ') : undefined,
+              }
+            };
+          });
+        } else {
+          // No locales completed - this is a real error
+          setTranslationProgress(prev => {
+            const finalStatus: 'error' = 'error';
+            return {
+              ...prev,
+              [pageId]: {
+                ...prev[pageId],
+                status: finalStatus,
+                currentStep: `Translation failed: ${errorMessage}`,
+                error: errorMessage,
+              }
+            };
+          });
+        }
       }
 
     } catch (err) {
