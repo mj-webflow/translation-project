@@ -12,5 +12,8 @@
     },
     "observability": {
         "enabled": true
+    },
+    "limits": {
+    "cpu_ms": 120000, // 2 minutes
     }
 }
