@@ -826,6 +826,11 @@ export async function POST(request: NextRequest) {
 		// Step 0: Fetch locales dynamically
         const locales = await fetchLocales(siteId, token);
 		console.log('Locales used for translation:', locales);
+		
+		// Get the source language from the primary locale
+		const primaryLocale = locales.primary;
+		const sourceLanguage = primaryLocale?.tag || primaryLocale?.cmsLocaleId || 'en';
+		console.log(`Source language (primary locale): ${sourceLanguage}`);
 
 		// Step 1: Fetch page content (primary locale)
         const pageContent = await fetchPageContent(pageId, token, branchId);
@@ -979,7 +984,7 @@ export async function POST(request: NextRequest) {
                     
                     translations = await translateBatch(sources, {
                         targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                        sourceLanguage: 'en',
+                        sourceLanguage: sourceLanguage,
                         context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
                     });
                     
@@ -1118,7 +1123,7 @@ export async function POST(request: NextRequest) {
                         try {
                             const defaultTranslations = await translateBatch(defaultPropertyItems.map(i => i.source), {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                                sourceLanguage: 'en',
+                                sourceLanguage: sourceLanguage,
                                 context: `Webflow component content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
                             });
                             
@@ -1169,7 +1174,7 @@ export async function POST(request: NextRequest) {
                         try {
                             const overrideTranslations = await translateBatch(overrideItems.map(i => i.source), {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                                sourceLanguage: 'en',
+                                sourceLanguage: sourceLanguage,
                                 context: `Webflow component content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
                             });
 
@@ -1282,7 +1287,7 @@ export async function POST(request: NextRequest) {
                             
                             const compTranslations = await translateBatch(compSources, {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                                sourceLanguage: 'en',
+                                sourceLanguage: sourceLanguage,
                                 context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
                             });
                             
@@ -1328,7 +1333,7 @@ export async function POST(request: NextRequest) {
                             const compSources = compTextNodes.map(n => typeof n.html === 'string' && n.html.length > 0 ? n.html : (n.text as string));
                             const compTranslations = await translateBatch(compSources, {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
-                                sourceLanguage: 'en',
+                                sourceLanguage: sourceLanguage,
                                 context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
                             });
 
