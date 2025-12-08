@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { WebflowPage, WebflowPagesResponse } from '@/types/webflow';
 import { createClient } from '@/lib/supabase';
+import Navigation from '@/components/Navigation';
 
 interface TranslationProgress {
   pageId: string;
@@ -406,10 +407,13 @@ export default function WebflowPagesPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-900">
-        <div className="text-center">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-zinc-900 border-r-transparent dark:border-zinc-50"></div>
-          <p className="mt-4 text-zinc-600 dark:text-zinc-400">Loading pages...</p>
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
+        <Navigation userEmail={userEmail} onLogout={handleLogout} />
+        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
+          <div className="text-center">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-zinc-900 border-r-transparent dark:border-zinc-50"></div>
+            <p className="mt-4 text-zinc-600 dark:text-zinc-400">Loading pages...</p>
+          </div>
         </div>
       </div>
     );
@@ -417,51 +421,40 @@ export default function WebflowPagesPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-900 p-4">
-        <div className="max-w-md text-center">
-          <div className="mb-4 text-6xl">⚠️</div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
-            Error Loading Pages
-          </h1>
-          <p className="text-zinc-600 dark:text-zinc-400">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-6 px-4 py-2 bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900 rounded-lg hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
-          >
-            Retry
-          </button>
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
+        <Navigation userEmail={userEmail} onLogout={handleLogout} />
+        <div className="flex items-center justify-center h-[calc(100vh-64px)] p-4">
+          <div className="max-w-md text-center">
+            <div className="mb-4 text-6xl">⚠️</div>
+            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
+              Error Loading Pages
+            </h1>
+            <p className="text-zinc-600 dark:text-zinc-400">{error}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-6 px-4 py-2 bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900 rounded-lg hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
+      <Navigation userEmail={userEmail} onLogout={handleLogout} />
+      
+      <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
-              Webflow Pages
-            </h1>
-            <p className="text-zinc-600 dark:text-zinc-400">
-              Browse and manage all pages from your Webflow site
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {userEmail && (
-              <div className="text-right">
-                <div className="text-sm text-zinc-600 dark:text-zinc-400">Signed in as</div>
-                <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{userEmail}</div>
-              </div>
-            )}
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 rounded-lg hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors text-sm font-medium"
-            >
-              Sign Out
-            </button>
-          </div>
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
+            Page Translations
+          </h1>
+          <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+            Translate your Webflow pages to multiple languages
+          </p>
         </div>
 
         {/* Locale Selection */}
