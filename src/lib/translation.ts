@@ -37,6 +37,10 @@ export async function translateText(
         if (isHtmlTagToken(token) || token.trim().length === 0) {
           return token; // preserve tags and pure whitespace as-is
         }
+        // Skip tokens that are only invisible/control characters (Zero Width Joiner, etc.)
+        if (isOnlyInvisibleChars(token)) {
+          return token; // preserve invisible characters as-is
+        }
         return translatePlainText(token, options);
       })
     );
@@ -182,6 +186,18 @@ function splitHtmlIntoTokens(html: string): string[] {
 function isHtmlTagToken(token: string): boolean {
   const t = token.trim();
   return t.startsWith('<') && t.endsWith('>');
+}
+
+/**
+ * Check if a string contains only invisible/control characters
+ * that shouldn't be translated (Zero Width Joiner, Zero Width Space, etc.)
+ */
+function isOnlyInvisibleChars(text: string): boolean {
+  // Remove all invisible/control characters and check if anything remains
+  // This includes: Zero Width Joiner (U+200D), Zero Width Space (U+200B),
+  // Zero Width Non-Joiner (U+200C), Word Joiner (U+2060), etc.
+  const visibleText = text.replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '').trim();
+  return visibleText.length === 0;
 }
 
 async function translatePlainText(

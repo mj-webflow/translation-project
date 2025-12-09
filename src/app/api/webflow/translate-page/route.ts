@@ -76,6 +76,7 @@ interface PageContent {
 		text?: string;
 		type?: string;
         html?: string;
+        tag?: string;
         componentId?: string;
         propertyOverrides?: Array<{ propertyId: string; text?: string; html?: string }>;
 	}>;
@@ -191,6 +192,7 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
             text: textValue,
             type: typeof n?.type === 'string' ? n.type : undefined,
             html: htmlValue,
+            tag: typeof n?.tag === 'string' ? n.tag : undefined,
             componentId: typeof n?.componentId === 'string' ? n.componentId : undefined,
             propertyOverrides,
         };
@@ -205,6 +207,7 @@ type ComponentContent = {
         type?: string; 
         text?: string; 
         html?: string; 
+        tag?: string;
         componentId?: string;
         propertyOverrides?: Array<{ propertyId: string; text?: string; html?: string }>;
     }>
@@ -292,6 +295,7 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
             type: typeof n?.type === 'string' ? n.type : undefined,
             text: textValue,
             html: htmlValue,
+            tag: typeof n?.tag === 'string' ? n.tag : undefined,
             componentId: typeof n?.componentId === 'string' ? n.componentId : undefined,
             propertyOverrides,
         };
@@ -865,6 +869,11 @@ export async function POST(request: NextRequest) {
 				// Filter translatable nodes (text nodes AND form elements with text content)
 				// Also filter out nodes with minimal content (< 3 chars after stripping HTML)
 				const textNodes = pageContent.nodes.filter(node => {
+					// Skip nodes with tag "wg-text" (Weglot placeholder elements)
+					if (node.tag === 'wg-text') return false;
+					// Skip nodes with class="wg-text" in HTML content (Weglot language toggle)
+					if (typeof node.html === 'string' && node.html.includes('class="wg-text"')) return false;
+					
 					// Include text nodes, form elements, and labels
 					const translatableTypes = ['text', 'input', 'text-input', 'email-input', 'password-input', 'textarea', 'button', 'submit-button', 'label', 'form-label', 'input-label'];
 					if (!translatableTypes.includes(node.type || '')) return false;
@@ -974,6 +983,14 @@ export async function POST(request: NextRequest) {
                     typeof node.html === 'string' && node.html.length > 0 ? node.html : (node.text as string)
                 ));
 
+                // Log sources to help debug problematic elements
+                console.log(`[Debug] Sources to translate (${sources.length} items):`);
+                sources.forEach((src, idx) => {
+                    const node = textNodes[idx];
+                    const preview = (src || '').substring(0, 100).replace(/\n/g, '\\n');
+                    console.log(`  [${idx}] nodeId=${node.nodeId}, type=${node.type}, tag=${node.tag}, text="${preview}${(src || '').length > 100 ? '...' : ''}"`);
+                });
+
                 let translations: string[] = [];
                 try {
                     // Send progress update before translation
@@ -986,6 +1003,20 @@ export async function POST(request: NextRequest) {
                         targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                         sourceLanguage: sourceLanguage,
                         context: `Webflow page content: ${pageId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                    });
+                    
+                    // Log translations that look like error messages
+                    translations.forEach((trans, idx) => {
+                        if (trans.includes("cannot provide") || trans.includes("I'm sorry") || trans.includes("Please provide")) {
+                            const node = textNodes[idx];
+                            const src = sources[idx];
+                            console.log(`[Warning] Problematic translation detected:`);
+                            console.log(`  nodeId: ${node.nodeId}`);
+                            console.log(`  type: ${node.type}`);
+                            console.log(`  tag: ${node.tag}`);
+                            console.log(`  source: "${src}"`);
+                            console.log(`  translation: "${trans}"`);
+                        }
                     });
                     
                     // Send progress update after translation
@@ -1292,6 +1323,17 @@ export async function POST(request: NextRequest) {
                             });
                             
                             console.log(`[Component ${componentId}] Translated texts:`, compTranslations);
+                            
+                            // Log problematic translations in component properties
+                            compTranslations.forEach((trans, idx) => {
+                                if (trans.includes("cannot provide") || trans.includes("I'm sorry") || trans.includes("Please provide")) {
+                                    console.log(`[Warning] Problematic component property translation:`);
+                                    console.log(`  componentId: ${componentId}`);
+                                    console.log(`  propertyId: ${translatableProps[idx]?.propertyId}`);
+                                    console.log(`  source: "${compSources[idx]}"`);
+                                    console.log(`  translation: "${trans}"`);
+                                }
+                            });
 
                             // Build properties payload with translated text (HTML preserved by translator)
                             const propertiesPayload = translatableProps.map((p, idx) => ({
@@ -1315,14 +1357,20 @@ export async function POST(request: NextRequest) {
                         }
                         const comp = componentContentCache.get(componentId)!;
                         // Include text nodes AND form elements (labels, inputs, buttons, etc.)
+                        // Skip nodes with tag "wg-text" or class="wg-text" (Weglot language toggle elements)
                         const translatableTypes = ['text', 'input', 'text-input', 'email-input', 'password-input', 'textarea', 'button', 'submit-button', 'label', 'form-label', 'input-label'];
                         
-                        const compTextNodes = comp.nodes.filter(n => 
-                            translatableTypes.includes(n.type || '') && (
-                                (typeof n.html === 'string' && n.html.trim().length > 0) ||
-                                (typeof n.text === 'string' && n.text.trim().length > 0)
-                            )
-                        );
+                        const compTextNodes = comp.nodes.filter(n => {
+                            // Skip Weglot elements by tag
+                            if (n.tag === 'wg-text') return false;
+                            // Skip Weglot elements by class in HTML content
+                            if (typeof n.html === 'string' && n.html.includes('class="wg-text"')) return false;
+                            // Must be a translatable type
+                            if (!translatableTypes.includes(n.type || '')) return false;
+                            // Must have actual content
+                            return (typeof n.html === 'string' && n.html.trim().length > 0) ||
+                                   (typeof n.text === 'string' && n.text.trim().length > 0);
+                        });
                         
                         if (compTextNodes.length > 0) {
                             sendSSE(controller, encoder, { 
@@ -1335,6 +1383,20 @@ export async function POST(request: NextRequest) {
                                 targetLanguage: (locale as any)?.tag || (locale as any)?.displayName || 'en',
                                 sourceLanguage: sourceLanguage,
                                 context: `Webflow component content: ${componentId} (${(locale as any)?.tag || (locale as any)?.displayName || ''})`,
+                            });
+                            
+                            // Log problematic translations in component DOM
+                            compTranslations.forEach((trans, idx) => {
+                                if (trans.includes("cannot provide") || trans.includes("I'm sorry") || trans.includes("Please provide")) {
+                                    const node = compTextNodes[idx];
+                                    console.log(`[Warning] Problematic component DOM translation:`);
+                                    console.log(`  componentId: ${componentId}`);
+                                    console.log(`  nodeId: ${node.nodeId}`);
+                                    console.log(`  type: ${node.type}`);
+                                    console.log(`  tag: ${node.tag}`);
+                                    console.log(`  source: "${compSources[idx]}"`);
+                                    console.log(`  translation: "${trans}"`);
+                                }
                             });
 
                             const getRootTag = (html?: string): string | undefined => {
