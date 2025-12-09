@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { WebflowPage, WebflowPagesResponse } from '@/types/webflow';
 import { createClient } from '@/lib/supabase';
+import Navigation from '@/components/Navigation';
 
 interface TranslationProgress {
   pageId: string;
@@ -178,8 +179,8 @@ export default function WebflowPagesPage() {
       // Translate all locales in a single request
       setTranslationProgress(prev => ({
         ...prev,
-        [pageId]: { 
-          ...prev[pageId], 
+        [pageId]: {
+          ...prev[pageId],
           status: 'translating', 
           currentStep: `Starting translation to ${selectedLocaleIds.length} locale(s)...`,
           completedLocales: []
@@ -324,15 +325,15 @@ export default function WebflowPagesPage() {
         return finalProgress;
       });
 
-        // Refresh pages list
-        const storedSiteIdRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
-        const storedTokenRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
-        const pagesResponse = await fetch(`/api/webflow/pages${storedSiteIdRefresh ? `?siteId=${encodeURIComponent(storedSiteIdRefresh)}` : ''}`, {
-          headers: storedTokenRefresh ? { 'x-webflow-token': storedTokenRefresh } : {},
-        });
-        if (pagesResponse.ok) {
-          const data: WebflowPagesResponse = await pagesResponse.json();
-          setPages(data.pages);
+      // Refresh pages list
+      const storedSiteIdRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
+      const storedTokenRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
+      const pagesResponse = await fetch(`/api/webflow/pages${storedSiteIdRefresh ? `?siteId=${encodeURIComponent(storedSiteIdRefresh)}` : ''}`, {
+        headers: storedTokenRefresh ? { 'x-webflow-token': storedTokenRefresh } : {},
+      });
+      if (pagesResponse.ok) {
+        const data: WebflowPagesResponse = await pagesResponse.json();
+        setPages(data.pages);
         }
       } catch (error) {
         console.error(`Translation request failed (may be timeout):`, error);
@@ -406,10 +407,13 @@ export default function WebflowPagesPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-900">
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
+        <Navigation userEmail={userEmail} onLogout={handleLogout} />
+        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
         <div className="text-center">
           <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-zinc-900 border-r-transparent dark:border-zinc-50"></div>
           <p className="mt-4 text-zinc-600 dark:text-zinc-400">Loading pages...</p>
+          </div>
         </div>
       </div>
     );
@@ -417,7 +421,9 @@ export default function WebflowPagesPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-900 p-4">
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
+        <Navigation userEmail={userEmail} onLogout={handleLogout} />
+        <div className="flex items-center justify-center h-[calc(100vh-64px)] p-4">
         <div className="max-w-md text-center">
           <div className="mb-4 text-6xl">⚠️</div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
@@ -430,38 +436,25 @@ export default function WebflowPagesPage() {
           >
             Retry
           </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
+      <Navigation userEmail={userEmail} onLogout={handleLogout} />
+      
+      <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
-              Webflow Pages
-            </h1>
-            <p className="text-zinc-600 dark:text-zinc-400">
-              Browse and manage all pages from your Webflow site
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {userEmail && (
-              <div className="text-right">
-                <div className="text-sm text-zinc-600 dark:text-zinc-400">Signed in as</div>
-                <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{userEmail}</div>
-              </div>
-            )}
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 rounded-lg hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors text-sm font-medium"
-            >
-              Sign Out
-            </button>
-          </div>
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
+            Page Translations
+          </h1>
+          <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+            Translate your Webflow pages to multiple languages
+          </p>
         </div>
 
         {/* Locale Selection */}
@@ -656,13 +649,13 @@ export default function WebflowPagesPage() {
                         <div className="mt-3 p-3 bg-zinc-50 dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-700">
                           {progress.status === 'complete' && (
                             <div className="space-y-1">
-                              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                </svg>
-                                <span className="text-sm font-medium">
+                            <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              <span className="text-sm font-medium">
                                   Translation complete!
-                                </span>
+                              </span>
                               </div>
                               {progress.currentStep && (
                                 <div className="text-xs text-zinc-600 dark:text-zinc-400 ml-6">
@@ -681,13 +674,13 @@ export default function WebflowPagesPage() {
                           )}
                           {isTranslating && (
                             <div className="space-y-1">
-                              <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                                <span className="text-sm font-medium">
+                            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                              <span className="text-sm font-medium">
                                   {progress.status === 'fetching' && 'Preparing translation...'}
                                   {progress.status === 'translating' && 'Translating content...'}
                                   {progress.status === 'updating' && 'Updating content...'}
-                                </span>
+                              </span>
                               </div>
                               {progress.currentStep && (
                                 <div className="text-xs text-zinc-600 dark:text-zinc-400 ml-6">

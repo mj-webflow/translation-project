@@ -316,7 +316,7 @@ async function collectNestedComponentIds(
     visited: Set<string> = new Set(),
     cache?: Map<string, ComponentContent>,
     depth: number = 0,
-    maxDepth: number = 10
+    maxDepth: number = 100
 ): Promise<string[]> {
     if (visited.has(componentId)) return [];
     if (depth >= maxDepth) {
@@ -365,7 +365,7 @@ async function collectNestedComponentInstances(
     cache?: Map<string, ComponentContent>,
     parentComponentId?: string,
     depth: number = 0,
-    maxDepth: number = 10
+    maxDepth: number = 100
 ): Promise<Array<{ nodeId: string; componentId: string; propertyOverrides?: any[]; parentComponentId: string }>> {
     if (visited.has(componentId)) return [];
     if (depth >= maxDepth) {

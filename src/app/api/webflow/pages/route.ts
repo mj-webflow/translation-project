@@ -42,26 +42,26 @@ export async function GET(request: NextRequest) {
       
       console.log(`[api/webflow/pages] Fetching batch at offset ${offset}...`);
 
-      const response = await fetch(requestUrl, {
-        headers: requestHeaders,
-        cache: 'no-store', // Disable caching for fresh data
-      });
+    const response = await fetch(requestUrl, {
+      headers: requestHeaders,
+      cache: 'no-store', // Disable caching for fresh data
+    });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[api/webflow/pages] Webflow API Error', { status: response.status, siteId, errorText });
-        return NextResponse.json(
-          {
-            error: 'Failed to fetch pages from Webflow',
-            details: errorText,
-            siteId,
-            request: { method: 'GET', url: requestUrl },
-          },
-          { status: response.status }
-        );
-      }
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[api/webflow/pages] Webflow API Error', { status: response.status, siteId, errorText });
+      return NextResponse.json(
+        {
+          error: 'Failed to fetch pages from Webflow',
+          details: errorText,
+          siteId,
+          request: { method: 'GET', url: requestUrl },
+        },
+        { status: response.status }
+      );
+    }
 
-      const data = await response.json();
+    const data = await response.json();
       const pages = data.pages || [];
       
       allPages = allPages.concat(pages);
