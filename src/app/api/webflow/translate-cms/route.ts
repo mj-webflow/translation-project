@@ -207,6 +207,45 @@ async function fetchLocales(siteId: string, token: string) {
 }
 
 /**
+ * Strip HTML tags to extract plain text (for checking if content exists)
+ */
+function extractTextFromHtml(html: string): string {
+    if (!html || typeof html !== 'string') {
+        return '';
+    }
+    // Remove HTML tags and decode common entities
+    return html
+        .replace(/<br\s*\/?>/gi, ' ')  // Replace <br> with space
+        .replace(/<[^>]+>/g, '')       // Remove all HTML tags
+        .replace(/&nbsp;/gi, ' ')       // Replace &nbsp; with space
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .trim();
+}
+
+/**
+ * Check if content has actual translatable text (not just whitespace/line breaks)
+ */
+function hasTranslatableContent(value: string): boolean {
+    if (!value || typeof value !== 'string') {
+        return false;
+    }
+    
+    const isHtml = /<[^>]+>/.test(value);
+    if (isHtml) {
+        // For HTML, extract text and check if there's actual content
+        const textContent = extractTextFromHtml(value);
+        return textContent.length > 0;
+    }
+    
+    // For plain text, just check if trimmed content exists
+    return value.trim().length > 0;
+}
+
+/**
  * Strip HTML tags for translation, then restore
  */
 function stripHtmlForTranslation(html: string): { text: string; isHtml: boolean } {
@@ -459,16 +498,15 @@ export async function POST(request: NextRequest) {
                         
                         for (const field of fieldsToTranslate) {
                             const value = fieldData[field.slug];
-                            if (value && typeof value === 'string' && value.trim()) {
+                            // Check if there's actual translatable content (not just whitespace/line breaks)
+                            if (value && typeof value === 'string' && hasTranslatableContent(value)) {
                                 const { text, isHtml } = stripHtmlForTranslation(value);
-                                if (text.trim()) {
-                                    textsToTranslate.push({
-                                        itemId: item.id,
-                                        fieldSlug: field.slug,
-                                        text,
-                                        isHtml,
-                                    });
-                                }
+                                textsToTranslate.push({
+                                    itemId: item.id,
+                                    fieldSlug: field.slug,
+                                    text,
+                                    isHtml,
+                                });
                             }
                         }
                     }

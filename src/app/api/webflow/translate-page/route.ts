@@ -186,6 +186,9 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
                 html: typeof po?.text?.html === 'string' ? po.text.html : undefined,
             })).filter((p: { propertyId: string; text?: string; html?: string }) => !!p.propertyId);
         }
+        // Get node name from various possible locations
+        const nodeName = n?.data?.name || n?.name || n?.attributes?.name || '';
+        
         return {
             nodeId: typeof n?.id === 'string' ? n.id : '',
             text: textValue,
@@ -193,6 +196,7 @@ async function fetchPageContent(pageId: string, token: string, branchId?: string
             html: htmlValue,
             componentId: typeof n?.componentId === 'string' ? n.componentId : undefined,
             propertyOverrides,
+            name: typeof nodeName === 'string' ? nodeName : '',
         };
     }).filter(n => n.nodeId);
 
@@ -207,6 +211,7 @@ type ComponentContent = {
         html?: string; 
         componentId?: string;
         propertyOverrides?: Array<{ propertyId: string; text?: string; html?: string }>;
+        name?: string;
     }>
 };
 
@@ -287,6 +292,9 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
             })).filter((po: any) => po.propertyId);
         }
         
+        // Get node name from various possible locations
+        const nodeName = n?.data?.name || n?.name || n?.attributes?.name || '';
+        
         return {
             nodeId: typeof n?.id === 'string' ? n.id : '',
             type: typeof n?.type === 'string' ? n.type : undefined,
@@ -294,6 +302,7 @@ async function fetchComponentContent(siteId: string, componentId: string, token:
             html: htmlValue,
             componentId: typeof n?.componentId === 'string' ? n.componentId : undefined,
             propertyOverrides,
+            name: typeof nodeName === 'string' ? nodeName : '',
         };
     }).filter((n: any) => n.nodeId);
 
@@ -312,7 +321,7 @@ async function collectNestedComponentIds(
     visited: Set<string> = new Set(),
     cache?: Map<string, ComponentContent>,
     depth: number = 0,
-    maxDepth: number = 10
+    maxDepth: number = 100
 ): Promise<string[]> {
     if (visited.has(componentId)) return [];
     if (depth >= maxDepth) {
@@ -361,7 +370,7 @@ async function collectNestedComponentInstances(
     cache?: Map<string, ComponentContent>,
     parentComponentId?: string,
     depth: number = 0,
-    maxDepth: number = 10
+    maxDepth: number = 100
 ): Promise<Array<{ nodeId: string; componentId: string; propertyOverrides?: any[]; parentComponentId: string }>> {
     if (visited.has(componentId)) return [];
     if (depth >= maxDepth) {
@@ -864,7 +873,14 @@ export async function POST(request: NextRequest) {
 
 				// Filter translatable nodes (text nodes AND form elements with text content)
 				// Also filter out nodes with minimal content (< 3 chars after stripping HTML)
+				// Skip nodes with "wg-dropdown" in their name (language toggle elements)
 				const textNodes = pageContent.nodes.filter(node => {
+					// Skip nodes with "wg-dropdown" in their name (language toggle)
+					if (node.name && node.name.toLowerCase().includes('wg-dropdown')) {
+						console.log(`Skipping node with wg-dropdown name: ${node.name}`);
+						return false;
+					}
+					
 					// Include text nodes, form elements, and labels
 					const translatableTypes = ['text', 'input', 'text-input', 'email-input', 'password-input', 'textarea', 'button', 'submit-button', 'label', 'form-label', 'input-label'];
 					if (!translatableTypes.includes(node.type || '')) return false;
@@ -1315,14 +1331,20 @@ export async function POST(request: NextRequest) {
                         }
                         const comp = componentContentCache.get(componentId)!;
                         // Include text nodes AND form elements (labels, inputs, buttons, etc.)
+                        // Skip nodes with "wg-dropdown" in their name (language toggle elements)
                         const translatableTypes = ['text', 'input', 'text-input', 'email-input', 'password-input', 'textarea', 'button', 'submit-button', 'label', 'form-label', 'input-label'];
                         
-                        const compTextNodes = comp.nodes.filter(n => 
-                            translatableTypes.includes(n.type || '') && (
+                        const compTextNodes = comp.nodes.filter(n => {
+                            // Skip nodes with "wg-dropdown" in their name (language toggle)
+                            if (n.name && n.name.toLowerCase().includes('wg-dropdown')) {
+                                console.log(`Skipping component node with wg-dropdown name: ${n.name}`);
+                                return false;
+                            }
+                            return translatableTypes.includes(n.type || '') && (
                                 (typeof n.html === 'string' && n.html.trim().length > 0) ||
                                 (typeof n.text === 'string' && n.text.trim().length > 0)
-                            )
-                        );
+                            );
+                        });
                         
                         if (compTextNodes.length > 0) {
                             sendSSE(controller, encoder, { 
