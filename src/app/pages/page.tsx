@@ -325,6 +325,80 @@ export default function WebflowPagesPage() {
         return finalProgress;
       });
 
+      // === TRANSLATE METADATA ===
+      // After content translation, also translate page metadata (title, SEO, Open Graph)
+      if (completedLocales.length > 0) {
+        setTranslationProgress(prev => ({
+          ...prev,
+          [pageId]: {
+            ...prev[pageId],
+            status: 'translating',
+            currentStep: `Translating page metadata...`,
+          }
+        }));
+
+        try {
+          const metaResponse = await fetch(`${basePath}/api/webflow/translate-metadata${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              ...(storedToken ? { 'x-webflow-token': storedToken } : {})
+            },
+            body: JSON.stringify({ pageId, targetLocaleIds: selectedLocaleIds })
+          });
+
+          if (metaResponse.ok && metaResponse.body) {
+            const metaReader = metaResponse.body.getReader();
+            const metaDecoder = new TextDecoder();
+            let metaBuffer = '';
+            let metaCompleted = 0;
+
+            while (true) {
+              const { done, value } = await metaReader.read();
+              if (done) break;
+
+              metaBuffer += metaDecoder.decode(value, { stream: true });
+              const metaLines = metaBuffer.split('\n');
+              metaBuffer = metaLines.pop() || '';
+
+              for (const line of metaLines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.success && data.localeName) {
+                      metaCompleted++;
+                      setTranslationProgress(prev => ({
+                        ...prev,
+                        [pageId]: {
+                          ...prev[pageId],
+                          currentStep: `Translated metadata for ${data.localeName} (${metaCompleted}/${selectedLocaleIds.length})`,
+                        }
+                      }));
+                    }
+                  } catch (e) {
+                    // Ignore parse errors
+                  }
+                }
+              }
+            }
+            console.log(`[translate-page] ✓ Metadata translation complete for ${metaCompleted} locale(s)`);
+          }
+        } catch (metaError) {
+          console.error('Metadata translation error (non-fatal):', metaError);
+          // Don't fail the whole operation if metadata translation fails
+        }
+
+        // Set final complete status after metadata translation
+        setTranslationProgress(prev => ({
+          ...prev,
+          [pageId]: {
+            ...prev[pageId],
+            status: 'complete',
+            currentStep: `Translation complete! Content and metadata translated to ${completedLocales.length} locale(s)`,
+          }
+        }));
+      }
+
       // Refresh pages list
       const storedSiteIdRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
       const storedTokenRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';
@@ -696,9 +770,10 @@ export default function WebflowPagesPage() {
                           )}
                         </div>
                       )}
+
                     </div>
 
-                    {/* Action Buttons */}
+                    {/* Action Button */}
                     <div className="flex flex-col gap-2">
                       <button
                         onClick={() => handleTranslatePage(page)}
@@ -708,6 +783,7 @@ export default function WebflowPagesPage() {
                             ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
                             : 'bg-blue-600 hover:bg-blue-700 text-white'
                         }`}
+                        title="Translate page content, title, SEO, and Open Graph data"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
