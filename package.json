@@ -7,16 +7,15 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "mcp": "node ./mcp-server.mjs",
-    "mcp:test:list": "node scripts/mcp-list-tools.mjs",
-    "mcp:test:page": "node scripts/mcp-get-page-content.mjs"
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.20.2",
-    "next": "16.0.0",
+    "@opennextjs/cloudflare": "^1.6.5",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.83.0",
+    "next": "16.0.7",
     "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "zod": "^3.25.76"
+    "react-dom": "19.2.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -24,8 +23,9 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.0.0",
+    "eslint-config-next": "16.0.7",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.48.0"
   }
 }

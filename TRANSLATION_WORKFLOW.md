@@ -1,211 +1,698 @@
 # Translation Workflow Documentation
 
+Comprehensive guide to how the translation system works, including architecture, API flows, and technical implementation details.
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Architecture](#architecture)
+3. [Translation Process](#translation-process)
+4. [Component Handling](#component-handling)
+5. [API Reference](#api-reference)
+6. [Technical Details](#technical-details)
+7. [Performance & Optimization](#performance--optimization)
+8. [Error Handling](#error-handling)
+
 ## Overview
 
-This Next.js application provides an automated translation workflow for Webflow pages, allowing you to translate page content from English to multiple languages (French, Spanish, and Arabic) with a single click.
+This application provides automated AI-powered translation of Webflow pages with comprehensive support for:
+- Page text nodes
+- Component properties
+- Nested components
+- HTML preservation
+- Batch processing
+- Real-time progress tracking
 
-## How It Works
+### Key Features
 
-### 1. **User Interface** (`/pages`)
-- Displays all Webflow pages in a searchable, filterable list
-- Each page has a "Translate" button
-- Real-time progress tracking during translation
-- Visual feedback for success/errors
-
-### 2. **Translation Process**
-
-When you click the "Translate" button:
-
-#### Step 1: Fetch Page Content
-- Retrieves the current page content from Webflow
-- Extracts all text nodes that need translation
-- Uses Webflow API: `GET /v2/pages/{pageId}/content`
-
-#### Step 2: AI Translation
-- Sends each text node to OpenAI (GPT)
-- Translates from English to target languages:
-  - French (France)
-  - Spanish
-  - Arabic (Standard)
-- Preserves HTML formatting, tags, and structure
-- Maintains tone and style
-
-#### Step 3: Update Localized Content
-- Updates each secondary locale with translated content
-- Uses Webflow API: `PUT /v2/pages/{pageId}/static_content`
-- Updates all locales sequentially
-
-#### Step 4: Completion
-- Shows success message with number of locales updated
-- Refreshes the pages list
-- Translation state persists until page refresh
+- **AI Translation**: Uses OpenAI GPT-4o-mini for high-quality translations
+- **Selective Locales**: Choose which secondary locales to translate
+- **Batch Processing**: Processes 3 locales simultaneously to avoid rate limits
+- **HTML Preservation**: Maintains all tags, classes, IDs, and attributes
+- **Component Support**: Handles properties, DOM content, and nested structures
+- **Progress Tracking**: Real-time status updates in the UI
 
 ## Architecture
 
-### Files Structure
+### System Components
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Browser UI                          │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Pages List (/pages)                                │   │
+│  │  - Locale selection checkboxes                      │   │
+│  │  - Page cards with translate buttons                │   │
+│  │  - Real-time progress display                       │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                            ↓ HTTP POST
+┌─────────────────────────────────────────────────────────────┐
+│                    Next.js API Routes                       │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  /api/webflow/translate-page                        │   │
+│  │  - Orchestrates translation workflow                │   │
+│  │  - Fetches page content from Webflow               │   │
+│  │  - Calls translation service                        │   │
+│  │  - Updates Webflow content                          │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+          ↓ Webflow API              ↓ OpenAI API
+┌──────────────────────┐    ┌──────────────────────┐
+│   Webflow Data API   │    │   OpenAI GPT-4       │
+│   - Pages DOM        │    │   - Text translation │
+│   - Components       │    │   - HTML preservation│
+│   - Properties       │    │   - Batch processing │
+└──────────────────────┘    └──────────────────────┘
+```
+
+### File Structure
 
 ```
 src/
 ├── app/
-│   ├── pages/
-│   │   └── page.tsx                    # Main UI with translation controls
-│   └── api/
-│       └── webflow/
-│           ├── pages/
-│           │   └── route.ts            # Fetch all pages
-│           └── translate-page/
-│               └── route.ts            # Translation workflow handler
+│   ├── api/webflow/
+│   │   ├── locales/route.ts           # GET site locales
+│   │   ├── pages/route.ts             # GET all pages
+│   │   └── translate-page/route.ts    # POST translate page
+│   ├── pages/page.tsx                 # Main UI component
+│   ├── layout.tsx                     # Root layout
+│   └── page.tsx                       # Homepage
 ├── lib/
-│   └── translation.ts                  # AI translation service
+│   └── translation.ts                 # OpenAI translation service
 └── types/
-    └── webflow.ts                      # TypeScript types
+    └── webflow.ts                     # TypeScript types
 ```
 
-### API Routes
+## Translation Process
 
-#### `GET /api/webflow/pages`
-Fetches all pages from the Webflow site.
+### Step-by-Step Flow
 
-**Response:**
+#### 1. User Initiates Translation
+
+**User Action**: Selects locales and clicks "Translate" button
+
+**Frontend** (`src/app/pages/page.tsx`):
+```typescript
+// Selected locale IDs from checkboxes
+const selectedLocaleIds = ['locale-id-1', 'locale-id-2', 'locale-id-3'];
+
+// POST request to API
+fetch('/api/webflow/translate-page', {
+  method: 'POST',
+  body: JSON.stringify({ 
+    pageId: 'page-id',
+    targetLocaleIds: selectedLocaleIds 
+  })
+});
+```
+
+#### 2. Fetch Locales
+
+**API** (`src/app/api/webflow/translate-page/route.ts`):
+```typescript
+// Fetch site locales from Webflow
+const locales = await fetchLocales(siteId, token);
+// Returns: { primary: {...}, secondary: [{...}, {...}] }
+
+// Filter to only selected locales
+const targetLocales = locales.secondary.filter(l => 
+  selectedLocaleIds.includes(l.id)
+);
+```
+
+#### 3. Fetch Page Content
+
+**Webflow API Call**:
+```
+GET /v2/pages/{pageId}/dom
+```
+
+**Response Structure**:
 ```json
 {
-  "pages": [...],
+  "nodes": [
+    {
+      "id": "node-123",
+      "type": "text",
+      "text": { "html": "<h1>Hello</h1>", "text": "Hello" }
+    },
+    {
+      "id": "node-456",
+      "type": "component-instance",
+      "componentId": "comp-789",
+      "propertyOverrides": [
+        {
+          "propertyId": "prop-abc",
+          "text": { "text": "Button Text" }
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### 4. Extract Translatable Content
+
+**Content Types Extracted**:
+
+1. **Page Text Nodes**
+   ```typescript
+   const textNodes = pageContent.nodes.filter(node =>
+     node.type === 'text' && (node.text || node.html)
+   );
+   ```
+
+2. **Component Property Overrides**
+   ```typescript
+   const componentNodes = pageContent.nodes.filter(node =>
+     node.type === 'component-instance' && 
+     node.propertyOverrides?.length > 0
+   );
+   ```
+
+3. **Component Definitions**
+   ```typescript
+   // For components without overrides
+   const componentIds = pageContent.nodes
+     .filter(n => n.type === 'component-instance' && !n.propertyOverrides)
+     .map(n => n.componentId);
+   ```
+
+4. **Nested Components**
+   ```typescript
+   // Recursively discover nested components
+   async function collectNestedComponentIds(componentId) {
+     const content = await fetchComponentContent(componentId);
+     const nested = content.nodes
+       .filter(n => n.type === 'component-instance')
+       .map(n => n.componentId);
+     // Recurse for each nested component
+     for (const id of nested) {
+       await collectNestedComponentIds(id);
+     }
+   }
+   ```
+
+#### 5. Translate Content
+
+**Translation Service** (`src/lib/translation.ts`):
+
+```typescript
+// HTML-aware translation
+async function translateText(text, options) {
+  // Detect HTML
+  if (isLikelyHtml(text)) {
+    // Split into tokens: tags and text
+    const tokens = splitHtmlIntoTokens(text);
+    // ["<h1>", "Hello ", "<span>", "World", "</span>", "</h1>"]
+    
+    // Translate only text tokens
+    const translated = await Promise.all(
+      tokens.map(token => 
+        isHtmlTagToken(token) 
+          ? token  // Keep tags as-is
+          : translatePlainText(token, options)
+      )
+    );
+    
+    // Rejoin: "<h1>Hola <span>Mundo</span></h1>"
+    return translated.join('');
+  }
+  
+  // Plain text translation
+  return translatePlainText(text, options);
+}
+```
+
+**OpenAI API Call**:
+```typescript
+const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${OPENAI_API_KEY}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    model: 'gpt-4o-mini',
+    temperature: 0.2,
+    messages: [
+      {
+        role: 'system',
+        content: `You are a professional translator. Rules:
+          1) Output ONLY translated text
+          2) Preserve all HTML tags exactly
+          3) Maintain formatting and spacing
+          4) Keep proper nouns unchanged
+          5) Preserve placeholders like {{name}}`
+      },
+      {
+        role: 'user',
+        content: `Translate to ${targetLanguage}: ${text}`
+      }
+    ]
+  })
+});
+```
+
+#### 6. Batch Processing
+
+**Locale Batching**:
+```typescript
+const BATCH_SIZE = 3;
+const localeBatches = [
+  [locale1, locale2, locale3],  // Batch 1
+  [locale4, locale5, locale6],  // Batch 2
+  // ...
+];
+
+// Process each batch sequentially
+for (const batch of localeBatches) {
+  // Process locales in batch simultaneously
+  await Promise.all(batch.map(async locale => {
+    // Translate and update for this locale
+  }));
+}
+```
+
+**Why Batch?**
+- Prevents OpenAI rate limiting
+- Avoids Webflow API throttling
+- Optimizes translation speed
+- Handles large locale sets
+
+#### 7. Update Webflow Content
+
+**Three Update Paths**:
+
+**A. Page Text Nodes**
+```
+POST /v2/pages/{pageId}/dom?localeId={localeId}
+Body: {
+  nodes: [
+    { nodeId: "node-123", text: "<h1>Hola</h1>" }
+  ]
+}
+```
+
+**B. Component Properties**
+```
+POST /v2/sites/{siteId}/components/{componentId}/properties?localeId={localeId}
+Body: {
+  properties: [
+    { propertyId: "prop-abc", text: "Texto del botón" }
+  ]
+}
+```
+
+**C. Component DOM**
+```
+POST /v2/sites/{siteId}/components/{componentId}/dom?localeId={localeId}
+Body: {
+  nodes: [
+    { nodeId: "node-456", text: "<p>Contenido</p>" }
+  ]
+}
+```
+
+#### 8. Return Results
+
+**API Response**:
+```json
+{
+  "success": true,
+  "pageId": "page-id",
+  "completedLocales": ["Spanish (Mexico)", "French (France)"],
+  "nodesTranslated": 45
+}
+```
+
+**Frontend Updates**:
+- Shows success message
+- Displays translation statistics
+- Refreshes page list
+
+## Component Handling
+
+### Component Translation Strategy
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              Component on Page                          │
+├─────────────────────────────────────────────────────────┤
+│  Has Property Overrides?                                │
+│    ├─ YES → Translate overrides (page-level)          │
+│    └─ NO  → Translate component definition             │
+│                                                          │
+│  Component Definition Translation:                      │
+│    ├─ Has Properties? → Translate via Properties API   │
+│    └─ No Properties?  → Translate via DOM API          │
+│                                                          │
+│  Has Nested Components?                                 │
+│    └─ YES → Recursively translate each nested component│
+└─────────────────────────────────────────────────────────┘
+```
+
+### Example: Header Component
+
+**Scenario**: Header component with nested Nav_links component
+
+```
+Header (component-123)
+├─ Logo (text node)
+├─ Nav_links (component-456) ← Nested component
+│  ├─ Home (text node)
+│  ├─ About (text node)
+│  └─ Contact (text node)
+└─ CTA Button (property override)
+```
+
+**Translation Flow**:
+
+1. **Detect Header** on page
+2. **Translate CTA Button** (property override on page)
+3. **Discover Nav_links** (nested component)
+4. **Translate Nav_links** text nodes (Home, About, Contact)
+5. **Translate Logo** (Header component DOM)
+
+### Component Property vs DOM
+
+**When to use Properties API**:
+- Component has editable properties
+- Properties exposed in component settings
+- Text defined as property values
+
+**When to use DOM API**:
+- Component has hardcoded text
+- No editable properties
+- Text embedded in component structure
+
+## API Reference
+
+### GET /api/webflow/locales
+
+Fetches site locales.
+
+**Query Parameters**:
+- `siteId` (optional): Site ID (uses env var if not provided)
+
+**Headers**:
+- `x-webflow-token` (optional): Override API token
+
+**Response**:
+```json
+{
+  "primary": {
+    "id": "locale-123",
+    "tag": "en",
+    "displayName": "English"
+  },
+  "secondary": [
+    {
+      "id": "locale-456",
+      "tag": "es",
+      "displayName": "Spanish (Mexico)"
+    }
+  ]
+}
+```
+
+### GET /api/webflow/pages
+
+Fetches all pages from site.
+
+**Query Parameters**:
+- `siteId` (optional): Site ID
+
+**Headers**:
+- `x-webflow-token` (optional): Override API token
+
+**Response**:
+```json
+{
+  "pages": [
+    {
+      "id": "page-123",
+      "title": "Home",
+      "slug": "home",
+      "publishedPath": "/",
+      "draft": false,
+      "seo": {
+        "title": "Home Page",
+        "description": "Welcome"
+      }
+    }
+  ],
   "pagination": {
     "limit": 100,
     "offset": 0,
-    "total": 33
+    "total": 25
   }
 }
 ```
 
-#### `POST /api/webflow/translate-page`
-Translates a page to all configured locales.
+### POST /api/webflow/translate-page
 
-**Request:**
+Translates a page to selected locales.
+
+**Query Parameters**:
+- `siteId` (optional): Site ID
+- `branchId` (optional): Branch ID
+
+**Headers**:
+- `x-webflow-token` (optional): Override API token
+- `Content-Type`: `application/json`
+
+**Request Body**:
 ```json
 {
-  "pageId": "68ffc9c4c24cf1ffafdc728a"
+  "pageId": "page-123",
+  "targetLocaleIds": ["locale-456", "locale-789"]
 }
 ```
 
-**Response:**
+**Response**:
 ```json
 {
   "success": true,
-  "pageId": "68ffc9c4c24cf1ffafdc728a",
-  "completedLocales": ["French (France)", "Spanish", "Arabic (Standard)"],
-  "nodesTranslated": 15
+  "pageId": "page-123",
+  "completedLocales": ["Spanish (Mexico)", "French (France)"],
+  "nodesTranslated": 45
 }
 ```
 
-## Configuration
-
-### Supported Locales
-
-
-### Environment Variables
-
-Required environment variables in `.env.local`:
-
-```env
-# Webflow API (Required)
-WEBFLOW_API_TOKEN=your_webflow_api_token
-WEBFLOW_SITE_ID=68c83fa8b4d1c57c202101a3
-
-# OpenAI API (Required for translation)
-OPENAI_API_KEY=your_openai_api_key
+**Error Response**:
+```json
+{
+  "error": "Translation failed",
+  "details": "No target locales selected"
+}
 ```
 
-## Translation Quality
+## Technical Details
 
-### AI Model
-- **Provider**: OpenAI (GPT)
-- **Model**: `gpt-4o-mini`
-- **Temperature**: 0.2 (deterministic)
+### HTML Preservation Algorithm
 
-### Translation Rules
-The AI is instructed to:
-1. Provide only translated text (no explanations)
-2. Preserve all HTML tags exactly
-3. Maintain formatting, line breaks, and spacing
-4. Keep the same tone and style
-5. Keep proper nouns and brand names as-is
-6. Handle right-to-left languages (Arabic) properly
-7. Preserve placeholder variables unchanged
+```typescript
+// Input: "<h1>Hello <span class="highlight">World</span></h1>"
 
-### Fallback Behavior
-If the OpenAI API key is not configured or translation fails:
-- Falls back to mock translation (adds language prefix)
-- Logs warnings to console
-- Allows testing without API costs
+// Step 1: Split into tokens
+const tokens = html.split(/(<[^>]+>)/g);
+// ["<h1>", "Hello ", "<span class=\"highlight\">", "World", "</span>", "</h1>"]
 
-## Usage Examples
+// Step 2: Identify token types
+tokens.map(token => ({
+  value: token,
+  isTag: token.startsWith('<') && token.endsWith('>')
+}));
 
-### Basic Translation
-1. Navigate to `/pages`
-2. Find the page you want to translate
-3. Click the "Translate" button
-4. Wait for the progress indicator
-5. See success message when complete
+// Step 3: Translate text tokens only
+const translated = await Promise.all(
+  tokens.map(async token => 
+    token.isTag ? token : await translate(token)
+  )
+);
+// ["<h1>", "Hola ", "<span class=\"highlight\">", "Mundo", "</span>", "</h1>"]
 
-### Viewing Translated Pages
-After translation, pages are available at:
-- English (Primary): `https://wfc-demo.webflow.io/page-slug`
-- French: `https://wfc-demo.webflow.io/fr-fr/page-slug`
-- Spanish: `https://wfc-demo.webflow.io/es/page-slug`
-- Arabic: `https://wfc-demo.webflow.io/ar/page-slug`
+// Step 4: Rejoin
+const result = translated.join('');
+// "<h1>Hola <span class=\"highlight\">Mundo</span></h1>"
+```
 
-## Limitations
+### Nested Component Discovery
 
-1. **Static Content Only**: Currently translates static page content (text nodes)
-2. **Sequential Processing**: Translates one locale at a time for reliability
-3. **No Bulk Translation**: Must translate pages individually
-4. **Draft Pages**: Can translate but won't be visible until published
-5. **Template Pages**: May require special handling for dynamic content
+```typescript
+async function collectNestedComponentIds(
+  componentId: string,
+  visited: Set<string> = new Set()
+): Promise<string[]> {
+  // Prevent infinite loops
+  if (visited.has(componentId)) return [];
+  visited.add(componentId);
+  
+  // Fetch component DOM
+  const content = await fetchComponentContent(componentId);
+  
+  // Find nested component instances
+  const nestedIds: string[] = [];
+  for (const node of content.nodes) {
+    if (node.type === 'component-instance' && node.componentId) {
+      nestedIds.push(node.componentId);
+      
+      // Recurse into nested component
+      const deeperIds = await collectNestedComponentIds(
+        node.componentId,
+        visited
+      );
+      nestedIds.push(...deeperIds);
+    }
+  }
+  
+  return nestedIds;
+}
+```
+
+### Error Recovery
+
+**Retry Logic for Webflow API**:
+```typescript
+async function updatePageContent(pageId, localeId, nodes) {
+  const response = await fetch(url, {
+    method: 'POST',
+    body: JSON.stringify({ nodes })
+  });
+  
+  const result = await response.json();
+  
+  // Check for errors
+  if (result.errors?.length > 0) {
+    // Extract expected tags from errors
+    const expectedTags = extractExpectedTags(result.errors);
+    
+    // Wrap content with expected tags
+    const retryNodes = nodes.map(node => ({
+      ...node,
+      text: wrapWithTag(node.text, expectedTags[node.nodeId])
+    }));
+    
+    // Retry with wrapped content
+    await fetch(url, {
+      method: 'POST',
+      body: JSON.stringify({ nodes: retryNodes })
+    });
+  }
+}
+```
+
+## Performance & Optimization
+
+### Translation Speed
+
+**Factors Affecting Speed**:
+- Number of text nodes: ~0.1s per node
+- Number of components: ~0.5s per component
+- Number of locales: Linear scaling
+- OpenAI API latency: ~1-2s per request
+- Webflow API latency: ~0.5s per request
+
+**Typical Times**:
+- Small page (10 nodes, 1 locale): ~5 seconds
+- Medium page (50 nodes, 3 locales): ~30 seconds
+- Large page (100 nodes, 5 locales): ~90 seconds
+
+### Optimization Strategies
+
+1. **Batch Locales**: Process 3 at a time
+2. **Parallel Translation**: Translate multiple text segments simultaneously
+3. **Minimize API Calls**: Combine updates where possible
+4. **Cache Component Discovery**: Reuse nested component lists
+5. **Efficient HTML Parsing**: Single-pass tokenization
+
+### Rate Limits
+
+**OpenAI**:
+- Tier 1: 500 RPM (requests per minute)
+- Tier 2: 5,000 RPM
+- Solution: Batch processing prevents hitting limits
+
+**Webflow**:
+- 60 requests per minute per token
+- Solution: Sequential batch processing
 
 ## Error Handling
 
-The system handles various error scenarios:
-- Missing API credentials
-- Webflow API failures
-- Translation service errors
-- Network timeouts
-- Invalid page IDs
+### Error Types & Solutions
 
-Errors are displayed in the UI with descriptive messages.
+**1. Authentication Errors**
+```
+Error: "Webflow API token not configured"
+Solution: Check .env.local file
+```
 
-## Future Enhancements
+**2. Validation Errors**
+```
+Error: "No target locales selected"
+Solution: Select at least one locale checkbox
+```
 
-Potential improvements:
-1. Bulk translation (translate multiple pages at once)
-2. Translation preview before applying
-3. Manual translation editing
-4. Translation memory/cache
-5. Cost tracking for API usage
-6. Support for collection items
-7. Support for component translations
-8. Rollback capability
+**3. API Errors**
+```
+Error: "Failed to fetch page content"
+Solution: Verify page exists and token has permissions
+```
 
-## Performance Considerations
+**4. Translation Errors**
+```
+Error: "OpenAI API error"
+Solution: Check API key and credits
+```
 
-- **API Calls**: Each page requires 1 fetch + N update calls (N = number of locales)
-- **Translation Speed**: ~1-3 seconds per text node
-- **Rate Limits**: Respects Webflow and OpenAI API rate limits
-- **Cost**: OpenAI API usage based on token count
+**5. Update Errors**
+```
+Error: "Expected <h1> element"
+Solution: Automatic retry with proper wrapping
+```
 
-## Support
+### Error Recovery Flow
 
-For issues or questions:
-1. Check console logs for detailed error messages
-2. Verify API credentials are correct
-3. Ensure Webflow site has locales configured
-4. Test with a simple page first
+```
+┌─────────────────────┐
+│  Translation Error  │
+└─────────┬───────────┘
+          │
+          ├─ Authentication? → Show token error
+          ├─ Validation? → Show user message
+          ├─ API Failure? → Retry with backoff
+          ├─ Rate Limit? → Queue and retry
+          └─ Unknown? → Log and show generic error
+```
 
-## License
+## Best Practices
 
-This translation workflow is part of the translation-project and uses:
-- Webflow API v2
-- OpenAI API
-- Next.js 16
-- React 19
+### Content Preparation
 
+1. **Use Semantic HTML**: Proper heading hierarchy
+2. **Consistent Structure**: Similar patterns across pages
+3. **Clear Text**: Avoid ambiguous phrases
+4. **Proper Nouns**: Mark with classes if needed
+5. **Test First**: Try with simple page before bulk translation
+
+### Translation Quality
+
+1. **Review Translations**: Spot-check translated content
+2. **Context Matters**: Provide good context in source content
+3. **Brand Terms**: Keep consistent across locales
+4. **Cultural Adaptation**: Consider cultural differences
+5. **Proofread**: Have native speakers review
+
+### Performance
+
+1. **Translate in Batches**: Don't translate all pages at once
+2. **Off-Peak Hours**: Translate during low-traffic times
+3. **Monitor Costs**: Track OpenAI API usage
+4. **Cache Results**: Consider saving translations
+5. **Incremental Updates**: Only translate changed content
+
+---
+
+**For more information, see README.md and README_SETUP.md**
