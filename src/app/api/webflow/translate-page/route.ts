@@ -588,9 +588,9 @@ async function updateComponentContent(
             const retryNodes = nodes.map(n => {
                 const tag = expectedTagByNode.get(n.nodeId);
                 if (!tag) return n;
-                const trimmed = (n.text || '').trim();
-                if (trimmed.startsWith('<')) return { nodeId: n.nodeId, text: trimmed };
-                return { nodeId: n.nodeId, text: `<${tag}>${escapeHtml(trimmed)}</${tag}>` };
+                const text = n.text || '';
+                if (text.trimStart().startsWith('<')) return { nodeId: n.nodeId, text };
+                return { nodeId: n.nodeId, text: `<${tag}>${escapeHtml(text)}</${tag}>` };
             });
 
             const retryResp = await fetch(url.toString(), {
@@ -709,9 +709,9 @@ async function updatePageContentSingle(
                         const tn = n as { nodeId: string; text: string };
                         const tag = expectedTagByNode.get(tn.nodeId);
                         if (!tag) return { nodeId: tn.nodeId, text: tn.text };
-                        const trimmed = (tn.text || '').trim();
-                        if (trimmed.startsWith('<')) return { nodeId: tn.nodeId, text: trimmed };
-                        return { nodeId: tn.nodeId, text: `<${tag}>${escapeHtml(trimmed)}</${tag}>` };
+                        const text = tn.text || '';
+                        if (text.trimStart().startsWith('<')) return { nodeId: tn.nodeId, text };
+                        return { nodeId: tn.nodeId, text: `<${tag}>${escapeHtml(text)}</${tag}>` };
                     }
                     // Component instance update, pass through unchanged
                     return n as { nodeId: string; propertyOverrides: Array<{ propertyId: string; text: string }> };
@@ -1042,10 +1042,10 @@ export async function POST(request: NextRequest) {
 					.replace(/>/g, '&gt;');
 
 				const ensureWrapped = (content: string, tag?: string): string => {
-					const trimmed = (content || '').trim();
-					if (!tag) return trimmed;
-					if (trimmed.startsWith('<')) return trimmed; // already HTML
-					return `<${tag}>${escapeHtml(trimmed)}</${tag}>`;
+					const text = content || '';
+					if (!tag) return text;
+					if (text.trimStart().startsWith('<')) return text; // already HTML
+					return `<${tag}>${escapeHtml(text)}</${tag}>`;
 				};
 
                 const textUpdateNodes: UpdateNode[] = textNodes.map((node, idx) => {
@@ -1411,10 +1411,10 @@ export async function POST(request: NextRequest) {
                                 .replace(/>/g, '&gt;');
 
                             const ensureWrapped = (content: string, tag?: string): string => {
-                                const trimmed = (content || '').trim();
-                                if (!tag) return trimmed;
-                                if (trimmed.startsWith('<')) return trimmed;
-                                return `<${tag}>${escapeHtml(trimmed)}</${tag}>`;
+                                const text = content || '';
+                                if (!tag) return text;
+                                if (text.trimStart().startsWith('<')) return text;
+                                return `<${tag}>${escapeHtml(text)}</${tag}>`;
                             };
 
                             const compUpdateNodes = compTextNodes.map((n, idx) => {

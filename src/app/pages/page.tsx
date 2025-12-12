@@ -325,6 +325,80 @@ export default function WebflowPagesPage() {
         return finalProgress;
       });
 
+      // === TRANSLATE METADATA ===
+      // After content translation, also translate page metadata (title, SEO, Open Graph)
+      if (completedLocales.length > 0) {
+        setTranslationProgress(prev => ({
+          ...prev,
+          [pageId]: {
+            ...prev[pageId],
+            status: 'translating',
+            currentStep: `Translating page metadata...`,
+          }
+        }));
+
+        try {
+          const metaResponse = await fetch(`${basePath}/api/webflow/translate-metadata${storedSiteId ? `?siteId=${encodeURIComponent(storedSiteId)}` : ''}`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              ...(storedToken ? { 'x-webflow-token': storedToken } : {})
+            },
+            body: JSON.stringify({ pageId, targetLocaleIds: selectedLocaleIds })
+          });
+
+          if (metaResponse.ok && metaResponse.body) {
+            const metaReader = metaResponse.body.getReader();
+            const metaDecoder = new TextDecoder();
+            let metaBuffer = '';
+            let metaCompleted = 0;
+
+            while (true) {
+              const { done, value } = await metaReader.read();
+              if (done) break;
+
+              metaBuffer += metaDecoder.decode(value, { stream: true });
+              const metaLines = metaBuffer.split('\n');
+              metaBuffer = metaLines.pop() || '';
+
+              for (const line of metaLines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.success && data.localeName) {
+                      metaCompleted++;
+                      setTranslationProgress(prev => ({
+                        ...prev,
+                        [pageId]: {
+                          ...prev[pageId],
+                          currentStep: `Translated metadata for ${data.localeName} (${metaCompleted}/${selectedLocaleIds.length})`,
+                        }
+                      }));
+                    }
+                  } catch (e) {
+                    // Ignore parse errors
+                  }
+                }
+              }
+            }
+            console.log(`[translate-page] ✓ Metadata translation complete for ${metaCompleted} locale(s)`);
+          }
+        } catch (metaError) {
+          console.error('Metadata translation error (non-fatal):', metaError);
+          // Don't fail the whole operation if metadata translation fails
+        }
+
+        // Set final complete status after metadata translation
+        setTranslationProgress(prev => ({
+          ...prev,
+          [pageId]: {
+            ...prev[pageId],
+            status: 'complete',
+            currentStep: `Translation complete! Content and metadata translated to ${completedLocales.length} locale(s)`,
+          }
+        }));
+      }
+
       // Refresh pages list
       const storedSiteIdRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_site_id') || '') : '';
       const storedTokenRefresh = typeof window !== 'undefined' ? (localStorage.getItem('webflow_api_token') || '') : '';

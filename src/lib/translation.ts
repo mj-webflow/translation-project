@@ -206,12 +206,22 @@ async function translatePlainText(
 ): Promise<string> {
   const { targetLanguage, sourceLanguage = 'English', context } = options;
 
+  // Capture leading and trailing whitespace to restore after translation
+  const leadingWhitespace = text.match(/^(\s*)/)?.[1] || '';
+  const trailingWhitespace = text.match(/(\s*)$/)?.[1] || '';
+  const trimmedText = text.trim();
+
+  // If text is only whitespace, return as-is
+  if (trimmedText.length === 0) {
+    return text;
+  }
+
   try {
     const openaiApiKey = process.env.OPENAI_API_KEY;
 
     if (!openaiApiKey) {
       console.warn('OPENAI_API_KEY not configured, using mock translation');
-      return mockTranslate(text, targetLanguage);
+      return leadingWhitespace + mockTranslate(trimmedText, targetLanguage) + trailingWhitespace;
     }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -230,7 +240,8 @@ async function translatePlainText(
           },
           {
             role: 'user',
-            content: buildTranslationPrompt(text, sourceLanguage, targetLanguage, context),
+            // Use trimmed text for translation to avoid confusing the AI
+            content: buildTranslationPrompt(trimmedText, sourceLanguage, targetLanguage, context),
           },
         ],
       }),
@@ -275,11 +286,12 @@ async function translatePlainText(
       throw new Error('OpenAI response missing translated content');
     }
     
-    return translatedText.trim();
+    // Restore leading and trailing whitespace from original text
+    return leadingWhitespace + translatedText.trim() + trailingWhitespace;
   } catch (error) {
     console.error('Translation error:', error);
-    // Fallback to mock translation on error
-    return mockTranslate(text, targetLanguage);
+    // Fallback to mock translation on error, preserving whitespace
+    return leadingWhitespace + mockTranslate(trimmedText, targetLanguage) + trailingWhitespace;
   }
 }
 
