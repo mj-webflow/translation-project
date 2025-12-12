@@ -29,6 +29,7 @@ export default function WebflowPagesPage() {
   const [userEmail, setUserEmail] = useState<string>('');
   const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [translateSlugs, setTranslateSlugs] = useState(false);
   const PAGES_PER_PAGE = 50;
   
   // Initialize Supabase and get user info
@@ -344,7 +345,7 @@ export default function WebflowPagesPage() {
               'Content-Type': 'application/json',
               ...(storedToken ? { 'x-webflow-token': storedToken } : {})
             },
-            body: JSON.stringify({ pageId, targetLocaleIds: selectedLocaleIds })
+            body: JSON.stringify({ pageId, targetLocaleIds: selectedLocaleIds, translateSlug: translateSlugs })
           });
 
           if (metaResponse.ok && metaResponse.body) {
@@ -561,6 +562,25 @@ export default function WebflowPagesPage() {
           {selectedLocaleIds.length === 0 && (
             <div className="mt-2 text-xs text-orange-600 dark:text-orange-400">Pick at least one secondary locale to enable translation.</div>
           )}
+          
+          {/* Translation Options */}
+          <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700">
+            <div className="text-sm text-zinc-600 dark:text-zinc-400 mb-2">Translation Options:</div>
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={translateSlugs}
+                onChange={(e) => setTranslateSlugs(e.target.checked)}
+                className="w-4 h-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-zinc-700 dark:text-zinc-300 group-hover:text-zinc-900 dark:group-hover:text-zinc-100">
+                Translate page slugs
+              </span>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                (URLs will be translated and made URL-safe, e.g., /about-us → /a-propos-de-nous)
+              </span>
+            </label>
+          </div>
         </div>
 
         {/* Stats */}

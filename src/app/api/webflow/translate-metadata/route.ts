@@ -25,6 +25,26 @@ interface PageMetadata {
 interface TranslateMetadataRequest {
   pageId: string;
   targetLocaleIds: string[];
+  translateSlug?: boolean;
+}
+
+/**
+ * Converts translated text to a URL-safe slug
+ * - Converts to lowercase
+ * - Replaces spaces and underscores with hyphens
+ * - Removes special characters except hyphens
+ * - Removes consecutive hyphens
+ * - Trims hyphens from start/end
+ */
+function toSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD') // Decompose accented characters
+    .replace(/[\u0300-\u036f]/g, '') // Remove diacritical marks
+    .replace(/[^a-z0-9\s-]/g, '') // Remove non-alphanumeric except spaces and hyphens
+    .replace(/[\s_]+/g, '-') // Replace spaces and underscores with hyphens
+    .replace(/-+/g, '-') // Remove consecutive hyphens
+    .replace(/^-|-$/g, ''); // Trim hyphens from start/end
 }
 
 /**
@@ -64,7 +84,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const { pageId, targetLocaleIds } = body;
+  const { pageId, targetLocaleIds, translateSlug = false } = body;
 
   if (!pageId || !Array.isArray(targetLocaleIds) || targetLocaleIds.length === 0) {
     return new Response(JSON.stringify({ error: 'Missing pageId or targetLocaleIds' }), {
@@ -134,6 +154,13 @@ export async function POST(request: NextRequest) {
         if (sourceMetadata.title) {
           textsToTranslate.push({ field: 'title', text: sourceMetadata.title });
         }
+        // Slug translation is optional - translate the title-like text, then convert to URL-safe slug
+        if (translateSlug && sourceMetadata.slug) {
+          // Use the title as the source for slug translation (gives better context)
+          // Fall back to the slug itself if title is not available
+          const slugSource = sourceMetadata.title || sourceMetadata.slug.replace(/-/g, ' ');
+          textsToTranslate.push({ field: 'slug', text: slugSource });
+        }
         if (sourceMetadata.seo?.title) {
           textsToTranslate.push({ field: 'seoTitle', text: sourceMetadata.seo.title });
         }
@@ -188,6 +215,14 @@ export async function POST(request: NextRequest) {
               switch (item.field) {
                 case 'title':
                   updatePayload.title = translated;
+                  break;
+                case 'slug':
+                  // Convert translated text to URL-safe slug
+                  const translatedSlug = toSlug(translated);
+                  if (translatedSlug.length > 0) {
+                    updatePayload.slug = translatedSlug;
+                    console.log(`[translate-metadata] Slug: "${sourceMetadata.slug}" → "${translatedSlug}"`);
+                  }
                   break;
                 case 'seoTitle':
                   if (!updatePayload.seo) updatePayload.seo = {};

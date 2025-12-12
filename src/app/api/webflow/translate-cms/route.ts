@@ -9,10 +9,31 @@ const TRANSLATABLE_FIELD_TYPES = ['PlainText', 'RichText'];
 
 // Field slugs that should NEVER be translated (system/identifier fields)
 const NON_TRANSLATABLE_FIELD_SLUGS = [
-    'slug',
     '_archived',
     '_draft',
 ];
+
+// Slug field is handled separately (optional)
+const SLUG_FIELD = 'slug';
+
+/**
+ * Converts translated text to a URL-safe slug
+ * - Converts to lowercase
+ * - Replaces spaces and underscores with hyphens
+ * - Removes special characters except hyphens
+ * - Removes consecutive hyphens
+ * - Trims hyphens from start/end
+ */
+function toSlug(text: string): string {
+    return text
+        .toLowerCase()
+        .normalize('NFD') // Decompose accented characters
+        .replace(/[\u0300-\u036f]/g, '') // Remove diacritical marks
+        .replace(/[^a-z0-9\s-]/g, '') // Remove non-alphanumeric except spaces and hyphens
+        .replace(/[\s_]+/g, '-') // Replace spaces and underscores with hyphens
+        .replace(/-+/g, '-') // Remove consecutive hyphens
+        .replace(/^-|-$/g, ''); // Trim hyphens from start/end
+}
 
 // Counter for API calls
 let requestApiCallCount = 0;
@@ -329,7 +350,7 @@ export async function POST(request: NextRequest) {
                 const token = overrideToken || WEBFLOW_API_TOKEN || '';
 
                 const body = await request.json();
-                const { collectionId, itemIds, targetLocaleIds, fieldSlugs } = body;
+                const { collectionId, itemIds, targetLocaleIds, fieldSlugs, translateSlug = false } = body;
 
                 // Validation
                 if (!collectionId) {
@@ -378,6 +399,7 @@ export async function POST(request: NextRequest) {
                 let fieldsToTranslate = allFields.filter((f: any) => 
                     TRANSLATABLE_FIELD_TYPES.includes(f.type) &&
                     !NON_TRANSLATABLE_FIELD_SLUGS.includes(f.slug) &&
+                    f.slug !== SLUG_FIELD && // Exclude slug field from main translation (handled separately)
                     !f.slug.endsWith('-slug') &&
                     !f.slug.endsWith('-id')
                 );
@@ -386,11 +408,13 @@ export async function POST(request: NextRequest) {
                 if (fieldSlugs && fieldSlugs.length > 0) {
                     fieldsToTranslate = fieldsToTranslate.filter((f: any) => 
                         fieldSlugs.includes(f.slug) &&
-                        !NON_TRANSLATABLE_FIELD_SLUGS.includes(f.slug)
+                        !NON_TRANSLATABLE_FIELD_SLUGS.includes(f.slug) &&
+                        f.slug !== SLUG_FIELD
                     );
                 }
 
                 console.log(`[translate-cms] Translatable fields: ${fieldsToTranslate.map((f: any) => f.slug).join(', ')}`);
+                console.log(`[translate-cms] Slug translation: ${translateSlug ? 'enabled' : 'disabled'}`);
 
                 if (fieldsToTranslate.length === 0) {
                     sendSSE(controller, { 
@@ -491,11 +515,12 @@ export async function POST(request: NextRequest) {
                     });
 
                     // Collect all texts to translate
-                    const textsToTranslate: Array<{ itemId: string; fieldSlug: string; text: string; isHtml: boolean }> = [];
+                    const textsToTranslate: Array<{ itemId: string; fieldSlug: string; text: string; isHtml: boolean; isSlug?: boolean }> = [];
 
                     for (const item of items) {
                         const fieldData = item.fieldData || {};
                         
+                        // Handle regular translatable fields
                         for (const field of fieldsToTranslate) {
                             const value = fieldData[field.slug];
                             // Check if there's actual translatable content (not just whitespace/line breaks)
@@ -506,6 +531,21 @@ export async function POST(request: NextRequest) {
                                     fieldSlug: field.slug,
                                     text,
                                     isHtml,
+                                });
+                            }
+                        }
+                        
+                        // Handle slug translation if enabled
+                        if (translateSlug && fieldData[SLUG_FIELD]) {
+                            // Use name or title as source for better translation context
+                            const slugSource = fieldData.name || fieldData.title || fieldData['post-title'] || fieldData[SLUG_FIELD].replace(/-/g, ' ');
+                            if (slugSource && typeof slugSource === 'string' && slugSource.trim().length > 0) {
+                                textsToTranslate.push({
+                                    itemId: item.id,
+                                    fieldSlug: SLUG_FIELD,
+                                    text: slugSource,
+                                    isHtml: false,
+                                    isSlug: true,
                                 });
                             }
                         }
@@ -545,7 +585,17 @@ export async function POST(request: NextRequest) {
                             itemUpdates.set(textInfo.itemId, {});
                         }
                         const fieldData = itemUpdates.get(textInfo.itemId)!;
-                        fieldData[textInfo.fieldSlug] = translations[index];
+                        
+                        if (textInfo.isSlug) {
+                            // Convert translated text to URL-safe slug
+                            const translatedSlug = toSlug(translations[index]);
+                            if (translatedSlug.length > 0) {
+                                fieldData[textInfo.fieldSlug] = translatedSlug;
+                                console.log(`[translate-cms] Slug: "${textInfo.text}" → "${translatedSlug}"`);
+                            }
+                        } else {
+                            fieldData[textInfo.fieldSlug] = translations[index];
+                        }
                     });
 
                     // Convert to array format for API

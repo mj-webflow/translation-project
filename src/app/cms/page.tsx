@@ -61,6 +61,7 @@ export default function CMSPage() {
     const [error, setError] = useState<string | null>(null);
     const [userEmail, setUserEmail] = useState<string>('');
     const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
+    const [translateSlugs, setTranslateSlugs] = useState(false);
 
     // Initialize Supabase and get user info
     useEffect(() => {
@@ -282,6 +283,7 @@ export default function CMSPage() {
                         itemIds: Array.from(selectedItemIds),
                         targetLocaleIds: selectedLocaleIds,
                         fieldSlugs: Array.from(selectedFieldSlugs),
+                        translateSlug: translateSlugs,
                     }),
                 }
             );
@@ -621,6 +623,27 @@ export default function CMSPage() {
                                             ))}
                                         </div>
                                     )}
+                                </div>
+
+                                {/* Translation Options */}
+                                <div className="pt-3 border-t border-zinc-200 dark:border-zinc-700">
+                                    <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Additional Options</div>
+                                    <label className="flex items-start gap-2 cursor-pointer group">
+                                        <input
+                                            type="checkbox"
+                                            checked={translateSlugs}
+                                            onChange={(e) => setTranslateSlugs(e.target.checked)}
+                                            className="h-4 w-4 mt-0.5 rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                                        />
+                                        <div>
+                                            <span className="text-sm text-zinc-800 dark:text-zinc-200 group-hover:text-zinc-900 dark:group-hover:text-zinc-100">
+                                                Translate item slugs
+                                            </span>
+                                            <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-0.5">
+                                                URLs will be translated and made URL-safe
+                                            </p>
+                                        </div>
+                                    </label>
                                 </div>
 
                                 {/* Translation Progress */}
